@@ -21,6 +21,16 @@ def _preferred_lang(user=None) -> str:
 def _ua():
     return "AdventureLog Server (self-hosted)"
 
+def _combine_local_and_translated(local_name: str | None, translated_name: str | None) -> str | None:
+    """
+    Show 'local (translated)' when both exist and differ; otherwise show whichever we have.
+    """
+    local = (local_name or "").strip()
+    trans = (translated_name or "").strip()
+    if local and trans and local.lower() != trans.lower():
+        return f"{local} ({trans})"
+    return local or trans or None
+
 # -----------------
 # SEARCHING
 def search_google(query):
@@ -74,7 +84,7 @@ def search_google(query):
             results.append({
                 "lat": location.get("latitude"),
                 "lon": location.get("longitude"),
-                "name": name,
+                "name": name,  # Google already returns in requested language; no local available here.
                 "display_name": place.get("formattedAddress"),
                 "type": primary_type,
                 "category": category,
@@ -125,10 +135,12 @@ def _infer_addresstype(type_):
 def search_osm(query):
     # NOTE: search endpoint has no user context here; use global preference
     lang = _preferred_lang()
+    base_lang = lang.split("-")[0]
     params = {
         "q": query,
         "format": "jsonv2",
         "accept-language": lang,
+        "namedetails": 1,  # <--- minimal addition to fetch name:* variants
     }
     headers = {
         "User-Agent": _ua(),
@@ -146,17 +158,31 @@ def search_osm(query):
     except Exception as e:
         return {"error": "Nominatim search failed", "details": str(e)}
 
-    return [{
-        "lat": item.get("lat"),
-        "lon": item.get("lon"),
-        "name": item.get("name"),
-        "display_name": item.get("display_name"),
-        "type": item.get("type"),
-        "category": item.get("category"),
-        "importance": item.get("importance"),
-        "addresstype": item.get("addresstype"),
-        "powered_by": "nominatim",
-    } for item in data]
+    results = []
+    for item in data:
+        # Local label from Nominatim; 'localname' is often the native/local script
+        local_name = item.get("localname") or item.get("name")
+        namedetails = item.get("namedetails", {}) or {}
+        # Try full tag, then base (e.g., en-US -> name:en)
+        translated = namedetails.get(f"name:{lang}") or namedetails.get(f"name:{base_lang}")
+        combined = _combine_local_and_translated(local_name, translated)
+
+        results.append({
+            "lat": item.get("lat"),
+            "lon": item.get("lon"),
+            "name": combined,                     # Shows "local (translated)" when both exist and differ
+            "display_name": item.get("display_name"),
+            "type": item.get("type"),
+            "category": item.get("category"),
+            "importance": item.get("importance"),
+            "addresstype": item.get("addresstype"),
+            "powered_by": "nominatim",
+        })
+
+    if results:
+        results.sort(key=lambda r: r["importance"] if r["importance"] is not None else 0, reverse=True)
+
+    return results
 
 # -----------------
 # REVERSE GEOCODING
@@ -318,6 +344,8 @@ def _parse_google_address_components(components):
             parsed["city"] = long_name
         if "sublocality" in types:
             parsed["town"] = long_name
+
+        # NOTE: we don't alter naming here—reverse geocode flows through extractIsoCode.
 
     if country_code and state_code:
         parsed["ISO3166-2-lvl1"] = f"{country_code}-{state_code}"
