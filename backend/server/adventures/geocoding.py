@@ -1,8 +1,25 @@
 import requests
 import time
 import socket
+from urllib.parse import urlencode
 from worldtravel.models import Region, City, VisitedRegion, VisitedCity
 from django.conf import settings
+
+# -----------------
+# Helpers
+def _preferred_lang(user=None) -> str:
+    """
+    Preferred BCP-47 language tag for geocoding.
+    Priority: settings.GEOCODER_LANGUAGE -> user.preferred_language -> settings.LANGUAGE_CODE -> 'en'
+    """
+    lang = getattr(settings, "GEOCODER_LANGUAGE", None) \
+        or getattr(user, "preferred_language", None) \
+        or getattr(settings, "LANGUAGE_CODE", None) \
+        or "en"
+    return str(lang).split(",")[0].strip().replace("_", "-")
+
+def _ua():
+    return "AdventureLog Server (self-hosted)"
 
 # -----------------
 # SEARCHING
@@ -12,26 +29,27 @@ def search_google(query):
         if not api_key:
             return {"error": "Missing Google Maps API key"}
 
-        # Updated to use the new Places API (New) endpoint
+        # Places API (New)
         url = "https://places.googleapis.com/v1/places:searchText"
-        
+        lang = _preferred_lang()
+
         headers = {
-            'Content-Type': 'application/json',
-            'X-Goog-Api-Key': api_key,
-            'X-Goog-FieldMask': 'places.displayName.text,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount'
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": api_key,
+            "X-Goog-FieldMask": "places.displayName.text,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount",
         }
-        
+
         payload = {
             "textQuery": query,
-            "maxResultCount": 20  # Adjust as needed
+            "maxResultCount": 20,
+            # Hint language to Google Places v1
+            "languageCode": lang,
         }
-        
+
         response = requests.post(url, json=payload, headers=headers, timeout=(2, 5))
         response.raise_for_status()
 
         data = response.json()
-        
-        # Check if we have places in the response
         places = data.get("places", [])
         if not places:
             return {"error": "No results found"}
@@ -50,7 +68,6 @@ def search_google(query):
             if rating is not None and ratings_total:
                 importance = round(float(rating) * ratings_total / 100, 2)
 
-            # Extract display name from the new API structure
             display_name_obj = place.get("displayName", {})
             name = display_name_obj.get("text") if display_name_obj else None
 
@@ -73,12 +90,10 @@ def search_google(query):
 
     except requests.exceptions.RequestException as e:
         return {"error": "Network error while contacting Google Maps", "details": str(e)}
-
     except Exception as e:
         return {"error": "Unexpected error during Google search", "details": str(e)}
 
 def _extract_google_category(types):
-    # Basic category inference based on common place types
     if not types:
         return None
     if "restaurant" in types:
@@ -91,11 +106,9 @@ def _extract_google_category(types):
         return "attraction"
     if "locality" in types or "administrative_area_level_1" in types:
         return "region"
-    return types[0]  # fallback to first type
-
+    return types[0]
 
 def _infer_addresstype(type_):
-    # Rough mapping of Google place types to OSM-style addresstypes
     mapping = {
         "locality": "city",
         "sublocality": "neighborhood",
@@ -109,12 +122,29 @@ def _infer_addresstype(type_):
     }
     return mapping.get(type_, None)
 
-
 def search_osm(query):
-    url = f"https://nominatim.openstreetmap.org/search?q={query}&format=jsonv2"
-    headers = {'User-Agent': 'AdventureLog Server'}
-    response = requests.get(url, headers=headers)
-    data = response.json()
+    # NOTE: search endpoint has no user context here; use global preference
+    lang = _preferred_lang()
+    params = {
+        "q": query,
+        "format": "jsonv2",
+        "accept-language": lang,
+    }
+    headers = {
+        "User-Agent": _ua(),
+        "Accept-Language": lang,
+    }
+    try:
+        resp = requests.get(
+            "https://nominatim.openstreetmap.org/search",
+            params=params,
+            headers=headers,
+            timeout=(2, 6),
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        return {"error": "Nominatim search failed", "details": str(e)}
 
     return [{
         "lat": item.get("lat"),
@@ -131,61 +161,67 @@ def search_osm(query):
 # -----------------
 # REVERSE GEOCODING
 # -----------------
-
 def extractIsoCode(user, data):
-        """
-        Extract the ISO code from the response data.
-        Returns a dictionary containing the region name, country name, and ISO code if found.
-        """
-        iso_code = None
-        town_city_or_county = None
-        display_name = None
-        country_code = None
-        city = None
-        visited_city = None
-        location_name = None
+    """
+    Extract the ISO code from the response data.
+    Returns a dictionary containing the region name, country name, and ISO code if found.
+    """
+    iso_code = None
+    town_city_or_county = None
+    display_name = None
+    country_code = None
+    city = None
+    visited_city = None
+    location_name = None
 
-        # town = None
-        # city = None
-        # county = None
+    if 'name' in data.keys():
+        location_name = data['name']
 
-        if 'name' in data.keys():
-            location_name = data['name']
-        
-        if 'address' in data.keys():
-            keys = data['address'].keys()
-            for key in keys:
-                if key.find("ISO") != -1:
-                    iso_code = data['address'][key]
-            if 'town' in keys:
-                town_city_or_county = data['address']['town']
-            if 'county' in keys:
-                town_city_or_county = data['address']['county']
-            if 'city' in keys:
-                town_city_or_county = data['address']['city']
-        if not iso_code:
-            return {"error": "No region found"}
-        
-        region = Region.objects.filter(id=iso_code).first()
-        visited_region = VisitedRegion.objects.filter(region=region, user=user).first()
-        
-        region_visited = False
-        city_visited = False
-        country_code = iso_code[:2]
-        
-        if region:
-            if town_city_or_county:
-                display_name = f"{town_city_or_county}, {region.name}, {country_code}"
-                city = City.objects.filter(name__contains=town_city_or_county, region=region).first()
-                visited_city = VisitedCity.objects.filter(city=city, user=user).first()
-
-        if visited_region:
-            region_visited = True
-        if visited_city:
-            city_visited = True
-        if region:
-            return {"region_id": iso_code, "region": region.name, "country": region.country.name, "country_id": region.country.country_code, "region_visited": region_visited, "display_name": display_name, "city": city.name if city else None, "city_id": city.id if city else None, "city_visited": city_visited, 'location_name': location_name}
+    if 'address' in data.keys():
+        keys = data['address'].keys()
+        for key in keys:
+            if key.find("ISO") != -1:
+                iso_code = data['address'][key]
+        if 'town' in keys:
+            town_city_or_county = data['address']['town']
+        if 'county' in keys:
+            town_city_or_county = data['address']['county']
+        if 'city' in keys:
+            town_city_or_county = data['address']['city']
+    if not iso_code:
         return {"error": "No region found"}
+
+    region = Region.objects.filter(id=iso_code).first()
+    visited_region = VisitedRegion.objects.filter(region=region, user=user).first()
+
+    region_visited = False
+    city_visited = False
+    country_code = iso_code[:2]
+
+    if region:
+        if town_city_or_county:
+            display_name = f"{town_city_or_county}, {region.name}, {country_code}"
+            city = City.objects.filter(name__contains=town_city_or_county, region=region).first()
+            visited_city = VisitedCity.objects.filter(city=city, user=user).first()
+
+    if visited_region:
+        region_visited = True
+    if visited_city:
+        city_visited = True
+    if region:
+        return {
+            "region_id": iso_code,
+            "region": region.name,
+            "country": region.country.name,
+            "country_id": region.country.country_code,
+            "region_visited": region_visited,
+            "display_name": display_name,
+            "city": city.name if city else None,
+            "city_id": city.id if city else None,
+            "city_visited": city_visited,
+            "location_name": location_name,
+        }
+    return {"error": "No region found"}
 
 def is_host_resolvable(hostname: str) -> bool:
     try:
@@ -204,8 +240,17 @@ def reverse_geocode(lat, lon, user):
     return reverse_geocode_osm(lat, lon, user)
 
 def reverse_geocode_osm(lat, lon, user):
-    url = f"https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat={lat}&lon={lon}"
-    headers = {'User-Agent': 'AdventureLog Server'}
+    lang = _preferred_lang(user)
+    params = {
+        "format": "jsonv2",
+        "lat": lat,
+        "lon": lon,
+        "accept-language": lang,
+    }
+    headers = {
+        "User-Agent": _ua(),
+        "Accept-Language": lang,
+    }
     connect_timeout = 1
     read_timeout = 5
 
@@ -213,7 +258,12 @@ def reverse_geocode_osm(lat, lon, user):
         return {"error": "DNS resolution failed"}
 
     try:
-        response = requests.get(url, headers=headers, timeout=(connect_timeout, read_timeout))
+        response = requests.get(
+            "https://nominatim.openstreetmap.org/reverse",
+            params=params,
+            headers=headers,
+            timeout=(connect_timeout, read_timeout),
+        )
         response.raise_for_status()
         data = response.json()
         return extractIsoCode(user, data)
@@ -222,21 +272,20 @@ def reverse_geocode_osm(lat, lon, user):
 
 def reverse_geocode_google(lat, lon, user):
     api_key = settings.GOOGLE_MAPS_API_KEY
-    
-    # Updated to use the new Geocoding API endpoint (this one is still supported)
-    # The Geocoding API is separate from Places API and still uses the old format
+    lang = _preferred_lang(user)
+
+    # Classic Geocoding API still in use
     url = "https://maps.googleapis.com/maps/api/geocode/json"
-    params = {"latlng": f"{lat},{lon}", "key": api_key}
+    params = {"latlng": f"{lat},{lon}", "key": api_key, "language": lang}
 
     try:
-        response = requests.get(url, params=params)
+        response = requests.get(url, params=params, timeout=(2, 6))
         response.raise_for_status()
         data = response.json()
 
         if data.get("status") != "OK":
             return {"error": "Geocoding failed"}
 
-        # Convert Google schema to Nominatim-style for extractIsoCode
         first_result = data.get("results", [])[0]
         result_data = {
             "name": first_result.get("formatted_address"),
@@ -270,7 +319,6 @@ def _parse_google_address_components(components):
         if "sublocality" in types:
             parsed["town"] = long_name
 
-    # Build composite ISO 3166-2 code like US-ME
     if country_code and state_code:
         parsed["ISO3166-2-lvl1"] = f"{country_code}-{state_code}"
 
