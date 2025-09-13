@@ -76,20 +76,19 @@ def search_google(query):
                 importance = round(float(rating) * ratings_total / 100, 2)
 
             display_name_obj = place.get("displayName", {})
-            name = display_name_obj.get("text") if display_name_obj else None
+            translated = display_name_obj.get("text") if display_name_obj else None
 
-            # Google only gives us one name string; treat it as "translated"
             name_local = None
-            name_translated = name
+            name_translated = translated
             combined_name = _combine_local_and_translated(name_local, name_translated)
 
             results.append({
                 "lat": location.get("latitude"),
                 "lon": location.get("longitude"),
-                "name": combined_name,
-                "name_local": name_local,
-                "name_translated": name_translated,
-                "display_name": place.get("formattedAddress"),
+                "name": combined_name,          # combined for current UI
+                "name_local": name_local,       # explicit local
+                "name_translated": name_translated,  # explicit translated
+                "display_name": place.get("formattedAddress"),  # keep as address
                 "type": primary_type,
                 "category": category,
                 "importance": importance,
@@ -164,19 +163,20 @@ def search_osm(query):
 
     results = []
     for item in data:
+        # Nominatim: local label (native script) + translated aliases in namedetails
         local_name = item.get("localname") or item.get("name")
         namedetails = item.get("namedetails", {}) or {}
-        # Try full tag (en-US), then base (en)
         translated = namedetails.get(f"name:{lang}") or namedetails.get(f"name:{base_lang}")
+
         combined = _combine_local_and_translated(local_name, translated)
 
         results.append({
             "lat": item.get("lat"),
             "lon": item.get("lon"),
             "name": combined,                 # "local (translated)" or single value if same/missing
-            "name_local": local_name,         # explicit fields for your UI
-            "name_translated": translated,    # explicit fields for your UI
-            "display_name": item.get("display_name"),
+            "name_local": local_name,         # explicit local field
+            "name_translated": translated,    # explicit translated field
+            "display_name": item.get("display_name"),  # formatted address; unchanged
             "type": item.get("type"),
             "category": item.get("category"),
             "importance": item.get("importance"),
