@@ -59,9 +59,15 @@ class RecommendationsViewSet(viewsets.ViewSet):
         except (ValueError, TypeError):
             origin = None
 
-        lang = _preferred_lang(getattr(request, "user", None))
-        lang_key = f"name:{lang}"
-        alt_key = f"name_{lang.split('-')[0]}"  # e.g. en-US -> name_en
+        # --- Language handling (robust + minimal) ---
+        # 1) allow explicit query override (?lang=xx) without changing your helper’s signature
+        req_lang = request.query_params.get('lang')
+        raw_lang = req_lang or _preferred_lang(getattr(request, "user", None)) or "en"
+        # normalize and derive base language safely
+        lang = str(raw_lang).strip()
+        base_lang = lang.split('-')[0] if lang else None
+        lang_key = f"name:{lang}" if lang else None
+        alt_key = f"name:{base_lang}" if base_lang and base_lang != lang else None
 
         for node in nodes:
             if node.get('type') not in ['node', 'way', 'relation']:
@@ -71,8 +77,14 @@ class RecommendationsViewSet(viewsets.ViewSet):
             lat = node.get('lat')
             lon = node.get('lon')
 
-            # Prefer localized name, then official_name, then generic name
-            name = tags.get(lang_key) or tags.get(alt_key) or tags.get('official_name') or tags.get('name', '')
+            # Prefer localized name, then international/official, then generic
+            name = (
+                (tags.get(lang_key) if lang_key else None) or
+                (tags.get(alt_key) if alt_key else None) or
+                tags.get('int_name') or
+                tags.get('official_name') or
+                tags.get('name', '')
+            )
             if (not name or lat is None or lon is None) and not all:
                 continue
 
@@ -156,7 +168,7 @@ class RecommendationsViewSet(viewsets.ViewSet):
 
         overpass_url = f"{self.BASE_URL}?data={query}"
         try:
-            # Overpass doesn't localize output; we localize by reading name:{lang} in parse_overpass_response
+            # Overpass doesn't localize output; we localize by reading name:* in parse_overpass_response
             response = requests.get(overpass_url, headers=self.HEADERS, timeout=10)
             response.raise_for_status()
             data = response.json()
@@ -184,6 +196,7 @@ class RecommendationsViewSet(viewsets.ViewSet):
             'tourism': 'tourist_attraction',
         }
 
+        # Keep using your helper; query param already handled in parse_overpass_response
         lang = _preferred_lang(getattr(request, "user", None))
         payload = {
             "includedTypes": [type_mapping[category]],
@@ -194,7 +207,7 @@ class RecommendationsViewSet(viewsets.ViewSet):
                     "radius": float(radius)
                 }
             },
-            "languageCode": lang,  # <-- key bit
+            "languageCode": lang,  # <-- Google honors this
         }
 
         try:
