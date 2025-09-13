@@ -21,10 +21,8 @@ def _preferred_lang(user=None) -> str:
 def _ua():
     return "AdventureLog Server (self-hosted)"
 
-def _combine_local_and_translated(local_name: str | None, translated_name: str | None) -> str | None:
-    """
-    Show 'local (translated)' when both exist and differ; otherwise show whichever we have.
-    """
+def _combine_local_and_translated(local_name, translated_name):
+    """Return 'local (translated)' when both exist and differ; else whichever exists."""
     local = (local_name or "").strip()
     trans = (translated_name or "").strip()
     if local and trans and local.lower() != trans.lower():
@@ -52,8 +50,7 @@ def search_google(query):
         payload = {
             "textQuery": query,
             "maxResultCount": 20,
-            # Hint language to Google Places v1
-            "languageCode": lang,
+            "languageCode": lang,  # hint language
         }
 
         response = requests.post(url, json=payload, headers=headers, timeout=(2, 5))
@@ -81,10 +78,17 @@ def search_google(query):
             display_name_obj = place.get("displayName", {})
             name = display_name_obj.get("text") if display_name_obj else None
 
+            # Google only gives us one name string; treat it as "translated"
+            name_local = None
+            name_translated = name
+            combined_name = _combine_local_and_translated(name_local, name_translated)
+
             results.append({
                 "lat": location.get("latitude"),
                 "lon": location.get("longitude"),
-                "name": name,  # Google already returns in requested language; no local available here.
+                "name": combined_name,
+                "name_local": name_local,
+                "name_translated": name_translated,
                 "display_name": place.get("formattedAddress"),
                 "type": primary_type,
                 "category": category,
@@ -140,7 +144,7 @@ def search_osm(query):
         "q": query,
         "format": "jsonv2",
         "accept-language": lang,
-        "namedetails": 1,  # <--- minimal addition to fetch name:* variants
+        "namedetails": 1,  # fetch name:* variants
     }
     headers = {
         "User-Agent": _ua(),
@@ -160,17 +164,18 @@ def search_osm(query):
 
     results = []
     for item in data:
-        # Local label from Nominatim; 'localname' is often the native/local script
         local_name = item.get("localname") or item.get("name")
         namedetails = item.get("namedetails", {}) or {}
-        # Try full tag, then base (e.g., en-US -> name:en)
+        # Try full tag (en-US), then base (en)
         translated = namedetails.get(f"name:{lang}") or namedetails.get(f"name:{base_lang}")
         combined = _combine_local_and_translated(local_name, translated)
 
         results.append({
             "lat": item.get("lat"),
             "lon": item.get("lon"),
-            "name": combined,                     # Shows "local (translated)" when both exist and differ
+            "name": combined,                 # "local (translated)" or single value if same/missing
+            "name_local": local_name,         # explicit fields for your UI
+            "name_translated": translated,    # explicit fields for your UI
             "display_name": item.get("display_name"),
             "type": item.get("type"),
             "category": item.get("category"),
@@ -344,8 +349,6 @@ def _parse_google_address_components(components):
             parsed["city"] = long_name
         if "sublocality" in types:
             parsed["town"] = long_name
-
-        # NOTE: we don't alter naming here—reverse geocode flows through extractIsoCode.
 
     if country_code and state_code:
         parsed["ISO3166-2-lvl1"] = f"{country_code}-{state_code}"
