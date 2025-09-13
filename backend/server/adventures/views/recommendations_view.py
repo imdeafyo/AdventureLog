@@ -1,3 +1,5 @@
+# AdventureLog/backend/server/adventures/views/recommendations_view.py
+
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -6,6 +8,27 @@ from django.conf import settings
 import requests
 from geopy.distance import geodesic
 from adventures.geocoding import _preferred_lang  # <-- reuse the helper
+
+# Soft transliteration: if unidecode is installed, use it; otherwise no-op
+try:
+    from unidecode import unidecode as _unidecode
+except Exception:
+    def _unidecode(s): return s
+
+def _is_latin(s: str) -> bool:
+    """Heuristic: treat as non-Latin if any letter is outside basic Latin."""
+    try:
+        for ch in s:
+            o = ord(ch)
+            if ('A' <= ch <= 'Z') or ('a' <= ch <= 'z') or ch in " -_.,'’&()/":
+                continue
+            if o <= 127:
+                continue
+            # non-ASCII letter/symbol
+            return False
+        return True
+    except Exception:
+        return True
 
 class RecommendationsViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
@@ -28,6 +51,10 @@ class RecommendationsViewSet(viewsets.ViewSet):
             if not name or not lat or not lon:
                 continue
 
+            # dedupe: don't echo name as address
+            if formatted_address and isinstance(formatted_address, str) and name and formatted_address.strip() == name.strip():
+                formatted_address = None
+
             distance_km = geodesic(origin, (lat, lon)).km
             adventure = {
                 "id": place.get('id'),
@@ -46,6 +73,11 @@ class RecommendationsViewSet(viewsets.ViewSet):
         return locations
 
     def parse_overpass_response(self, data, request):
+        def _dedupe_address(n, a):
+            if not a or not n:
+                return a
+            return None if a.strip().lower() == n.strip().lower() else a
+
         nodes = data.get('elements', [])
         locations = []
         all = request.query_params.get('all', False)
@@ -59,11 +91,9 @@ class RecommendationsViewSet(viewsets.ViewSet):
         except (ValueError, TypeError):
             origin = None
 
-        # --- Language handling (robust + minimal) ---
-        # 1) allow explicit query override (?lang=xx) without changing your helper’s signature
+        # language: allow ?lang= override; else helper
         req_lang = request.query_params.get('lang')
         raw_lang = req_lang or _preferred_lang(getattr(request, "user", None)) or "en"
-        # normalize and derive base language safely
         lang = str(raw_lang).strip()
         base_lang = lang.split('-')[0] if lang else None
         lang_key = f"name:{lang}" if lang else None
@@ -85,12 +115,25 @@ class RecommendationsViewSet(viewsets.ViewSet):
                 tags.get('official_name') or
                 tags.get('name', '')
             )
+
+            # If user/UI language is English and OSM lacks an English tag,
+            # transliterate to Latin as a last-resort display (doesn't modify data).
+            if name and base_lang == 'en' and not _is_latin(name):
+                name = _unidecode(name)
+
             if (not name or lat is None or lon is None) and not all:
                 continue
 
-            # Build a simple address string from OSM addr:* tags (may be in local language)
-            address_parts = [tags.get(f'addr:{k}') for k in ['housenumber', 'street', 'suburb', 'city', 'state', 'postcode', 'country']]
-            formatted_address = ", ".join(filter(None, address_parts)) or name
+            # Build a simple address string from OSM addr:* tags (may be local language)
+            addr_keys = ['housenumber', 'street', 'suburb', 'city', 'state', 'postcode', 'country']
+            address_parts = [tags.get(f'addr:{k}') for k in addr_keys]
+            formatted_address = ", ".join(filter(None, address_parts)) or None
+
+            # For English UI, transliterate address too if fully non-Latin
+            if formatted_address and base_lang == 'en' and not _is_latin(formatted_address):
+                formatted_address = _unidecode(formatted_address)
+
+            formatted_address = _dedupe_address(name, formatted_address)
 
             distance_km = None
             if origin:
@@ -168,7 +211,7 @@ class RecommendationsViewSet(viewsets.ViewSet):
 
         overpass_url = f"{self.BASE_URL}?data={query}"
         try:
-            # Overpass doesn't localize output; we localize by reading name:* in parse_overpass_response
+            # Overpass doesn't localize output; we localize in parse_overpass_response
             response = requests.get(overpass_url, headers=self.HEADERS, timeout=10)
             response.raise_for_status()
             data = response.json()
@@ -196,7 +239,6 @@ class RecommendationsViewSet(viewsets.ViewSet):
             'tourism': 'tourist_attraction',
         }
 
-        # Keep using your helper; query param already handled in parse_overpass_response
         lang = _preferred_lang(getattr(request, "user", None))
         payload = {
             "includedTypes": [type_mapping[category]],
@@ -207,7 +249,7 @@ class RecommendationsViewSet(viewsets.ViewSet):
                     "radius": float(radius)
                 }
             },
-            "languageCode": lang,  # <-- Google honors this
+            "languageCode": lang,  # Google honors this
         }
 
         try:
@@ -216,6 +258,7 @@ class RecommendationsViewSet(viewsets.ViewSet):
             data = response.json()
             places = data.get('places', [])
             origin = (float(lat), float(lon))
+            # (Google rarely needs transliteration, it returns English when asked.)
             locations = self.parse_google_places(places, origin)
             return Response(locations)
         except requests.exceptions.RequestException as e:
