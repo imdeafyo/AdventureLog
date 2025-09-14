@@ -1,17 +1,12 @@
 import requests
 import time
 import socket
-from urllib.parse import urlencode
 from worldtravel.models import Region, City, VisitedRegion, VisitedCity
 from django.conf import settings
 
 # -----------------
 # Helpers
 def _preferred_lang(user=None) -> str:
-    """
-    Preferred BCP-47 language tag for geocoding.
-    Priority: settings.GEOCODER_LANGUAGE -> user.preferred_language -> settings.LANGUAGE_CODE -> 'en'
-    """
     lang = getattr(settings, "GEOCODER_LANGUAGE", None) \
         or getattr(user, "preferred_language", None) \
         or getattr(settings, "LANGUAGE_CODE", None) \
@@ -22,12 +17,31 @@ def _ua():
     return "AdventureLog Server (self-hosted)"
 
 def _combine_local_and_translated(local_name, translated_name):
-    """Return 'local (translated)' when both exist and differ; else whichever exists."""
     local = (local_name or "").strip()
     trans = (translated_name or "").strip()
     if local and trans and local.lower() != trans.lower():
         return f"{local} ({trans})"
     return local or trans or None
+
+def _pick_local_from_namedetails(namedetails: dict, translated: str | None) -> str | None:
+    """Recover a native/local label from name:* when Nominatim localized `name`."""
+    if not isinstance(namedetails, dict):
+        return None
+    cand_non_ascii = None
+    cand_any = None
+    trans_norm = (translated or "").strip().lower()
+    for k, v in namedetails.items():
+        if not k.startswith("name:"):
+            continue
+        s = (v or "").strip()
+        if not s or s.lower() == trans_norm:
+            continue
+        if cand_any is None:
+            cand_any = s
+        if any(ord(ch) > 127 for ch in s):  # prefer native script
+            cand_non_ascii = s
+            break
+    return cand_non_ascii or cand_any
 
 # -----------------
 # SEARCHING
@@ -37,7 +51,6 @@ def search_google(query):
         if not api_key:
             return {"error": "Missing Google Maps API key"}
 
-        # Places API (New)
         url = "https://places.googleapis.com/v1/places:searchText"
         lang = _preferred_lang()
 
@@ -46,16 +59,14 @@ def search_google(query):
             "X-Goog-Api-Key": api_key,
             "X-Goog-FieldMask": "places.displayName.text,places.formattedAddress,places.location,places.types,places.rating,places.userRatingCount",
         }
-
         payload = {
             "textQuery": query,
             "maxResultCount": 20,
-            "languageCode": lang,  # hint language
+            "languageCode": lang,
         }
 
         response = requests.post(url, json=payload, headers=headers, timeout=(2, 5))
         response.raise_for_status()
-
         data = response.json()
         places = data.get("places", [])
         if not places:
@@ -66,8 +77,6 @@ def search_google(query):
             location = place.get("location", {})
             types = place.get("types", [])
             primary_type = types[0] if types else None
-            category = _extract_google_category(types)
-            addresstype = _infer_addresstype(primary_type)
 
             importance = None
             rating = place.get("rating")
@@ -76,29 +85,26 @@ def search_google(query):
                 importance = round(float(rating) * ratings_total / 100, 2)
 
             display_name_obj = place.get("displayName", {})
-            translated = display_name_obj.get("text") if display_name_obj else None
-
+            name_translated = display_name_obj.get("text") if display_name_obj else None
             name_local = None
-            name_translated = translated
             combined_name = _combine_local_and_translated(name_local, name_translated)
 
             results.append({
                 "lat": location.get("latitude"),
                 "lon": location.get("longitude"),
-                "name": combined_name,          # combined for current UI
-                "name_local": name_local,       # explicit local
-                "name_translated": name_translated,  # explicit translated
-                "display_name": place.get("formattedAddress"),  # keep as address
+                "name": combined_name,
+                "name_local": name_local,
+                "name_translated": name_translated,
+                "display_name": place.get("formattedAddress"),
                 "type": primary_type,
-                "category": category,
+                "category": _extract_google_category(types),
                 "importance": importance,
-                "addresstype": addresstype,
+                "addresstype": _infer_addresstype(primary_type),
                 "powered_by": "google",
             })
 
         if results:
-            results.sort(key=lambda r: r["importance"] if r["importance"] is not None else 0, reverse=True)
-
+            results.sort(key=lambda r: r["importance"] or 0, reverse=True)
         return results
 
     except requests.exceptions.RequestException as e:
@@ -136,14 +142,14 @@ def _infer_addresstype(type_):
     return mapping.get(type_, None)
 
 def search_osm(query):
-    # NOTE: search endpoint has no user context here; use global preference
+    # Use global preference (no user context here)
     lang = _preferred_lang()
     base_lang = lang.split("-")[0]
     params = {
         "q": query,
         "format": "jsonv2",
         "accept-language": lang,
-        "namedetails": 1,  # fetch name:* variants
+        "namedetails": 1,  # allow name:* lookups
     }
     headers = {
         "User-Agent": _ua(),
@@ -163,20 +169,24 @@ def search_osm(query):
 
     results = []
     for item in data:
-        # Nominatim: local label (native script) + translated aliases in namedetails
-        local_name = item.get("localname") or item.get("name")
         namedetails = item.get("namedetails", {}) or {}
         translated = namedetails.get(f"name:{lang}") or namedetails.get(f"name:{base_lang}")
+
+        # Prefer explicit localname; else derive a local candidate that differs from translated
+        local_name = item.get("localname") or _pick_local_from_namedetails(namedetails, translated)
+        raw_name = item.get("name")
+        if not local_name and raw_name and (translated or "").strip().lower() != raw_name.strip().lower():
+            local_name = raw_name
 
         combined = _combine_local_and_translated(local_name, translated)
 
         results.append({
             "lat": item.get("lat"),
             "lon": item.get("lon"),
-            "name": combined,                 # "local (translated)" or single value if same/missing
+            "name": combined,                 # "local (translated)" or single value
             "name_local": local_name,         # explicit local field
             "name_translated": translated,    # explicit translated field
-            "display_name": item.get("display_name"),  # formatted address; unchanged
+            "display_name": item.get("display_name"),
             "type": item.get("type"),
             "category": item.get("category"),
             "importance": item.get("importance"),
@@ -185,18 +195,13 @@ def search_osm(query):
         })
 
     if results:
-        results.sort(key=lambda r: r["importance"] if r["importance"] is not None else 0, reverse=True)
-
+        results.sort(key=lambda r: r["importance"] or 0, reverse=True)
     return results
 
 # -----------------
 # REVERSE GEOCODING
 # -----------------
 def extractIsoCode(user, data):
-    """
-    Extract the ISO code from the response data.
-    Returns a dictionary containing the region name, country name, and ISO code if found.
-    """
     iso_code = None
     town_city_or_county = None
     display_name = None
@@ -266,7 +271,6 @@ def reverse_geocode(lat, lon, user):
         google_result = reverse_geocode_google(lat, lon, user)
         if "error" not in google_result:
             return google_result
-        # If Google fails, fallback to OSM
         return reverse_geocode_osm(lat, lon, user)
     return reverse_geocode_osm(lat, lon, user)
 
@@ -305,7 +309,6 @@ def reverse_geocode_google(lat, lon, user):
     api_key = settings.GOOGLE_MAPS_API_KEY
     lang = _preferred_lang(user)
 
-    # Classic Geocoding API still in use
     url = "https://maps.googleapis.com/maps/api/geocode/json"
     params = {"latlng": f"{lat},{lon}", "key": api_key, "language": lang}
 
