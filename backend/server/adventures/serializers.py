@@ -1,6 +1,5 @@
 import os
 from .models import Location, ContentImage, ChecklistItem, Collection, Note, Transportation, Checklist, Visit, Category, ContentAttachment, Lodging, CollectionInvite, Trail, Activity
-from .utils.timezone_utils import format_datetime_in_selected_timezone
 from rest_framework import serializers
 from main.utils import CustomModelSerializer
 from users.serializers import CustomUserDetailsSerializer
@@ -425,8 +424,6 @@ class TransportationSerializer(CustomModelSerializer):
     distance = serializers.SerializerMethodField()
     images = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
-    start_date_local = serializers.SerializerMethodField()
-    end_date_local = serializers.SerializerMethodField()
 
     class Meta:
         model = Transportation
@@ -435,7 +432,7 @@ class TransportationSerializer(CustomModelSerializer):
             'link', 'date', 'flight_number', 'from_location', 'to_location', 
             'is_public', 'collection', 'created_at', 'updated_at', 'end_date',
             'origin_latitude', 'origin_longitude', 'destination_latitude', 'destination_longitude',
-            'start_timezone', 'end_timezone', 'distance', 'images', 'attachments', 'start_date_local', 'end_date_local'
+            'start_timezone', 'end_timezone', 'distance', 'images', 'attachments'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'distance']
 
@@ -461,12 +458,6 @@ class TransportationSerializer(CustomModelSerializer):
             except ValueError:
                 return None
         return None
-    
-    def get_start_date_local(self, obj):
-        return format_datetime_in_selected_timezone(obj.date, obj.start_timezone)
-    
-    def get_end_date_local(self, obj):
-        return format_datetime_in_selected_timezone(obj.end_date, obj.end_timezone)
 
 class LodgingSerializer(CustomModelSerializer):
     images = serializers.SerializerMethodField()
@@ -665,48 +656,3 @@ class CollectionInviteSerializer(serializers.ModelSerializer):
         model = CollectionInvite
         fields = ['id', 'collection', 'created_at', 'name', 'collection_owner_username', 'collection_user_first_name', 'collection_user_last_name']
         read_only_fields = ['id', 'created_at']
-
-class UltraSlimCollectionSerializer(serializers.ModelSerializer):
-    location_images = serializers.SerializerMethodField()
-    location_count = serializers.SerializerMethodField()
-    
-    class Meta:
-        model = Collection
-        fields = [
-            'id', 'user', 'name', 'description', 'is_public', 'start_date', 'end_date', 
-            'is_archived', 'link', 'created_at', 'updated_at', 'location_images', 
-            'location_count', 'shared_with'
-        ]
-        read_only_fields = fields  # All fields are read-only for listing
-
-    def get_location_images(self, obj):
-        """Get primary images from locations in this collection, optimized with select_related"""
-        # Filter first, then slice (removed slicing)
-        images = ContentImage.objects.filter(
-            location__collections=obj
-        ).select_related('user').prefetch_related('location')
-
-        return ContentImageSerializer(
-            images,
-            many=True,
-            context={'request': self.context.get('request')}
-        ).data
-
-    def get_location_count(self, obj):
-        """Get count of locations in this collection"""
-        # This uses the cached count if available, or does a simple count query
-        return obj.locations.count()
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-
-        # make it show the uuid instead of the pk for the user
-        representation['user'] = str(instance.user.uuid)
-        
-        # Make it display the user uuid for the shared users instead of the PK
-        shared_uuids = []
-        for user in instance.shared_with.all():
-            shared_uuids.append(str(user.uuid))
-        representation['shared_with'] = shared_uuids
-        return representation
-    
