@@ -1,5 +1,7 @@
 import os
-from .models import Location, ContentImage, ChecklistItem, Collection, Note, Transportation, Checklist, Visit, Category, ContentAttachment, Lodging, CollectionInvite, Trail, Activity
+<<<<<<< HEAD
+from .models import Adventure, AdventureImage, ChecklistItem, Collection, Note, Transportation, Checklist, Visit, Category, ContentAttachment, Lodging, CollectionInvite, Trail, Activity
+from .utils.timezone_utils import format_datetime_in_selected_timezone
 from rest_framework import serializers
 from main.utils import CustomModelSerializer
 from users.serializers import CustomUserDetailsSerializer
@@ -422,8 +424,13 @@ class MapPinSerializer(serializers.ModelSerializer):
 
 class TransportationSerializer(CustomModelSerializer):
     distance = serializers.SerializerMethodField()
+<<<<<<< HEAD
     images = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
+=======
+    start_date_local = serializers.SerializerMethodField()
+    end_date_local = serializers.SerializerMethodField()
+>>>>>>> pr-750
 
     class Meta:
         model = Transportation
@@ -432,7 +439,11 @@ class TransportationSerializer(CustomModelSerializer):
             'link', 'date', 'flight_number', 'from_location', 'to_location', 
             'is_public', 'collection', 'created_at', 'updated_at', 'end_date',
             'origin_latitude', 'origin_longitude', 'destination_latitude', 'destination_longitude',
+<<<<<<< HEAD
             'start_timezone', 'end_timezone', 'distance', 'images', 'attachments'
+=======
+            'start_timezone', 'end_timezone', 'distance', 'start_date_local', 'end_date_local'  # ✅ Add distance here
+>>>>>>> pr-750
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'distance']
 
@@ -458,6 +469,12 @@ class TransportationSerializer(CustomModelSerializer):
             except ValueError:
                 return None
         return None
+    
+    def get_start_date_local(self, obj):
+        return format_datetime_in_selected_timezone(obj.date, obj.start_timezone)
+    
+    def get_end_date_local(self, obj):
+        return format_datetime_in_selected_timezone(obj.end_date, obj.end_timezone)
 
 class LodgingSerializer(CustomModelSerializer):
     images = serializers.SerializerMethodField()
