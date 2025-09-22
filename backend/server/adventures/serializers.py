@@ -1,5 +1,4 @@
 import os
-<<<<<<< HEAD
 from .models import Adventure, AdventureImage, ChecklistItem, Collection, Note, Transportation, Checklist, Visit, Category, ContentAttachment, Lodging, CollectionInvite, Trail, Activity
 from .utils.timezone_utils import format_datetime_in_selected_timezone
 from rest_framework import serializers
@@ -424,13 +423,10 @@ class MapPinSerializer(serializers.ModelSerializer):
 
 class TransportationSerializer(CustomModelSerializer):
     distance = serializers.SerializerMethodField()
-<<<<<<< HEAD
     images = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
-=======
     start_date_local = serializers.SerializerMethodField()
     end_date_local = serializers.SerializerMethodField()
->>>>>>> pr-750
 
     class Meta:
         model = Transportation
@@ -439,11 +435,7 @@ class TransportationSerializer(CustomModelSerializer):
             'link', 'date', 'flight_number', 'from_location', 'to_location', 
             'is_public', 'collection', 'created_at', 'updated_at', 'end_date',
             'origin_latitude', 'origin_longitude', 'destination_latitude', 'destination_longitude',
-<<<<<<< HEAD
-            'start_timezone', 'end_timezone', 'distance', 'images', 'attachments'
-=======
-            'start_timezone', 'end_timezone', 'distance', 'start_date_local', 'end_date_local'  # ✅ Add distance here
->>>>>>> pr-750
+            'start_timezone', 'end_timezone', 'distance', 'images', 'attachments', 'start_date_local', 'end_date_local;
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'distance']
 
