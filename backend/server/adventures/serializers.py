@@ -435,7 +435,7 @@ class TransportationSerializer(CustomModelSerializer):
             'link', 'date', 'flight_number', 'from_location', 'to_location', 
             'is_public', 'collection', 'created_at', 'updated_at', 'end_date',
             'origin_latitude', 'origin_longitude', 'destination_latitude', 'destination_longitude',
-            'start_timezone', 'end_timezone', 'distance', 'images', 'attachments', 'start_date_local', 'end_date_local';
+            'start_timezone', 'end_timezone', 'distance', 'images', 'attachments', 'start_date_local', 'end_date_local'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'distance']
 
