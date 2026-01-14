@@ -15,11 +15,13 @@
 	import WeatherSunset from '~icons/mdi/weather-sunset';
 	import ClipboardList from '~icons/mdi/clipboard-list';
 	import ImageDisplayModal from '$lib/components/ImageDisplayModal.svelte';
-	import AttachmentCard from '$lib/components/AttachmentCard.svelte';
+	import AttachmentCard from '$lib/components/cards/AttachmentCard.svelte';
 	import { getActivityColor, getBasemapUrl, isAllDay } from '$lib';
-	import ActivityCard from '$lib/components/ActivityCard.svelte';
-	import TrailCard from '$lib/components/TrailCard.svelte';
-	import NewLocationModal from '$lib/components/NewLocationModal.svelte';
+	import ActivityCard from '$lib/components/cards/ActivityCard.svelte';
+	import TrailCard from '$lib/components/cards/TrailCard.svelte';
+	import NewLocationModal from '$lib/components/locations/LocationModal.svelte';
+	import CashMultiple from '~icons/mdi/cash-multiple';
+	import { DEFAULT_CURRENCY, formatMoney, toMoneyValue } from '$lib/money';
 
 	let geojson: any;
 
@@ -33,6 +35,16 @@
 
 	let adventure: AdditionalLocation;
 	let currentSlide = 0;
+
+	$: adventurePriceLabel = adventure
+		? formatMoney(
+				toMoneyValue(
+					adventure.price,
+					adventure.price_currency,
+					data.user?.default_currency || DEFAULT_CURRENCY
+				)
+			)
+		: null;
 
 	function goToSlide(index: number) {
 		currentSlide = index;
@@ -56,6 +68,15 @@
 					return 0;
 				}
 			});
+
+			// Sort visits by their start date (oldest first / chronological). Fall back to created_at if start_date is missing.
+			if (adventure.visits && adventure.visits.length > 1) {
+				adventure.visits.sort((a, b) => {
+					const aTs = DateTime.fromISO(a.start_date || a.created_at || '').toMillis() || 0;
+					const bTs = DateTime.fromISO(b.start_date || b.created_at || '').toMillis() || 0;
+					return aTs - bTs; // oldest first (chronological)
+				});
+			}
 		} else {
 			notFound = true;
 		}
@@ -730,6 +751,15 @@
 					<div class="card-body">
 						<h3 class="card-title text-lg mb-4">ℹ️ {$t('adventures.basic_information')}</h3>
 						<div class="space-y-3">
+							{#if adventurePriceLabel}
+								<div class="flex items-start gap-3">
+									<CashMultiple class="w-5 h-5 text-primary mt-1 flex-shrink-0" />
+									<div>
+										<div class="text-sm opacity-70 mb-0.5">{$t('adventures.price')}</div>
+										<div class="text-base font-semibold">{adventurePriceLabel}</div>
+									</div>
+								</div>
+							{/if}
 							{#if adventure.tags && adventure.tags?.length > 0}
 								<div>
 									<div class="text-sm opacity-70 mb-1">{$t('adventures.tags')}</div>

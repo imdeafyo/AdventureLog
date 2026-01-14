@@ -1,7 +1,9 @@
 name: Trivy Security Scans
 
 permissions:
-  contents: read # Minimal permissions needed for scanning source and images
+  contents: read
+  # Needed if you later add SARIF upload to GitHub Security
+  # security-events: write
 
 on:
   push:
@@ -13,7 +15,7 @@ on:
       - main
       - development
   schedule:
-    - cron: "0 8 * * 1" # Weekly scan on Mondays at 8 AM UTC
+    - cron: "0 8 * * 1" # Weekly on Mondays at 8 AM UTC
 
 jobs:
   filesystem-scan:
@@ -33,6 +35,8 @@ jobs:
           exit-code: 1
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+          # Use .trivyignore to suppress known false positives
+          trivyignores: .trivyignore
 
   image-scan:
     name: Trivy Docker Image Scan (Backend & Frontend)
@@ -66,6 +70,7 @@ jobs:
           exit-code: 1
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore
 
       - name: Scan frontend Docker image with Trivy
         uses: aquasecurity/trivy-action@master
@@ -75,3 +80,4 @@ jobs:
           exit-code: 1
           ignore-unfixed: true
           severity: CRITICAL,HIGH
+          trivyignores: .trivyignore

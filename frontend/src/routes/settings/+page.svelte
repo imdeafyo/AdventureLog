@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { page } from '$app/stores';
 	import { addToast } from '$lib/toasts';
+	import { CURRENCY_LABELS, CURRENCY_OPTIONS } from '$lib/money';
 	import type { ImmichIntegration, User } from '$lib/types.js';
 	import { onMount } from 'svelte';
 	import { browser } from '$app/environment';
@@ -22,6 +23,11 @@
 		emails = data.props.emails;
 	}
 
+	type Provider = {
+		name: string;
+		usage_required: boolean;
+	};
+
 	let new_email: string = '';
 	let public_url: string = data.props.publicUrl;
 	let immichIntegration = data.props.immichIntegration;
@@ -31,6 +37,9 @@
 	let wandererEnabled = data.props.wandererEnabled;
 	let wandererExpired = data.props.wandererExpired;
 	let activeSection: string = 'profile';
+
+	// typed alias for social providers to satisfy TypeScript
+	let socialProviders: Provider[] = data.props.socialProviders ?? [];
 
 	// Initialize activeSection from URL on mount
 	onMount(() => {
@@ -50,6 +59,8 @@
 
 	let acknowledgeRestoreOverride: boolean = false;
 
+	// Indicates restore operation in progress to disable button and show loader
+	let isRestoring: boolean = false;
 	let newImmichIntegration: ImmichIntegration = {
 		server_url: '',
 		api_key: '',
@@ -93,6 +104,11 @@
 		}
 		if (browser && $page.form?.error) {
 			addToast('error', $t('settings.update_error'));
+		}
+
+		// Stop any restoring loader when a form result (success or error) is present
+		if (browser && $page.form) {
+			isRestoring = false;
 		}
 	}
 
@@ -553,6 +569,30 @@
 											</div>
 										</label>
 									</div>
+
+									<div class="form-control">
+										<label class="label" for="default_currency">
+											<span class="label-text font-medium">Preferred currency</span>
+										</label>
+										<select
+											id="default_currency"
+											name="default_currency"
+											class="select select-bordered select-primary w-full"
+											bind:value={user.default_currency}
+										>
+											{#each CURRENCY_OPTIONS as code}
+												<option value={code}>
+													{code}
+													{#if CURRENCY_LABELS[code]}
+														{' '}-{' '}{CURRENCY_LABELS[code]}
+													{/if}
+												</option>
+											{/each}
+										</select>
+										<p class="text-sm text-base-content/60 mt-1">
+											This currency pre-fills money fields when adding new items.
+										</p>
+									</div>
 								</div>
 
 								<button class="btn btn-primary btn-wide">
@@ -732,7 +772,7 @@
 							</div>
 
 							<!-- Social Auth & Password Disable -->
-							{#if data.props.socialProviders && data.props.socialProviders.length > 0}
+							{#if socialProviders && socialProviders.length > 0}
 								<div class="bg-base-100 rounded-2xl shadow-xl p-8">
 									<div class="flex items-center gap-4 mb-6">
 										<div class="p-3 bg-info/10 rounded-xl">
@@ -752,16 +792,21 @@
 												<div>
 													<h3 class="font-semibold">{$t('settings.password_auth')}</h3>
 													<p class="text-sm text-base-content/70">
-														{user.disable_password
+														{user.disable_password ||
+														(socialProviders && socialProviders.some((p) => p.usage_required))
 															? $t('settings.password_login_disabled')
 															: $t('settings.password_login_enabled')}
 													</p>
 												</div>
 												<div class="flex items-center gap-4">
 													<div
-														class="badge {user.disable_password ? 'badge-error' : 'badge-success'}"
+														class="badge {user.disable_password ||
+														(socialProviders && socialProviders.some((p) => p.usage_required))
+															? 'badge-error'
+															: 'badge-success'}"
 													>
-														{user.disable_password
+														{user.disable_password ||
+														(socialProviders && socialProviders.some((p) => p.usage_required))
 															? $t('settings.disabled')
 															: $t('settings.enabled')}
 													</div>
@@ -769,7 +814,12 @@
 														type="checkbox"
 														bind:checked={user.disable_password}
 														on:change={disablePassword}
-														class="toggle toggle-primary"
+														disabled={socialProviders &&
+															socialProviders.some((p) => p.usage_required)}
+														class="toggle toggle-primary {socialProviders &&
+														socialProviders.some((p) => p.usage_required)
+															? 'toggle-disabled'
+															: ''}"
 													/>
 												</div>
 											</div>
@@ -864,6 +914,7 @@
 													<button
 														class="btn btn-sm btn-warning"
 														on:click={() => removeEmail(email)}
+														disabled={emails.length === 1 || email.primary}
 													>
 														{$t('adventures.remove')}
 													</button>
@@ -1365,6 +1416,7 @@
 										method="post"
 										action="?/restoreData"
 										use:enhance
+										on:submit={() => (isRestoring = true)}
 										enctype="multipart/form-data"
 										class="space-y-4"
 									>
@@ -1429,8 +1481,11 @@
 											<button
 												type="submit"
 												class="btn btn-warning"
-												disabled={!acknowledgeRestoreOverride}
+												disabled={!acknowledgeRestoreOverride || isRestoring}
 											>
+												{#if isRestoring}
+													<span class="loading loading-spinner loading-sm mr-2"></span>
+												{/if}
 												🚀 {$t('settings.restore_data')}
 											</button>
 										</div>

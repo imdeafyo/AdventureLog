@@ -3,9 +3,13 @@
 	import { onMount } from 'svelte';
 
 	export let selectedTimezone: string = Intl.DateTimeFormat().resolvedOptions().timeZone;
+	export let label: string | null = null;
 	// Generate a unique ID for this component instance
 	const uniqueId = Date.now().toString(36) + Math.random().toString(36).substring(2);
 	const instanceId = `tz-selector-${uniqueId}`;
+
+	let labelText: string = '';
+	$: labelText = label ?? ($t('adventures.timezone') as string);
 
 	let dropdownOpen = false;
 	let searchQuery = '';
@@ -68,7 +72,7 @@
 
 <div class="form-control w-full max-w-xs relative" bind:this={rootRef} id={instanceId}>
 	<label class="label" for={`timezone-display-${instanceId}`}>
-		<span class="label-text">{$t('adventures.timezone')}</span>
+		<span class="label-text">{labelText}</span>
 	</label>
 
 	<!-- Trigger -->

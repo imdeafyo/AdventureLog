@@ -3,7 +3,7 @@
 	import { createEventDispatcher } from 'svelte';
 	const dispatch = createEventDispatcher();
 	import { onMount } from 'svelte';
-	import UserCard from './UserCard.svelte';
+	import UserCard from './cards/UserCard.svelte';
 	import { addToast } from '$lib/toasts';
 	let modal: HTMLDialogElement;
 	import { t } from 'svelte-i18n';

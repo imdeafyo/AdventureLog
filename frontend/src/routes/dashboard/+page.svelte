@@ -1,16 +1,13 @@
 <script lang="ts">
-	import LocationCard from '$lib/components/LocationCard.svelte';
+	import LocationCard from '$lib/components/cards/LocationCard.svelte';
 	import type { PageData } from './$types';
 	import { t } from 'svelte-i18n';
-	import { onMount } from 'svelte';
-	import { gsap } from 'gsap';
 
 	// Icons
 	import FlagCheckeredVariantIcon from '~icons/mdi/flag-checkered-variant';
 	import Airplane from '~icons/mdi/airplane';
 	import CityVariantOutline from '~icons/mdi/city-variant-outline';
 	import MapMarkerStarOutline from '~icons/mdi/map-marker-star-outline';
-	import TrendingUp from '~icons/mdi/trending-up';
 	import CalendarClock from '~icons/mdi/calendar-clock';
 	import Plus from '~icons/mdi/plus';
 
@@ -178,7 +175,7 @@
 				<div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
 					{#each recentAdventures as adventure}
 						<div class="adventure-card">
-							<LocationCard {adventure} user={data.user} readOnly />
+							<LocationCard {adventure} readOnly user={null} />
 						</div>
 					{/each}
 				</div>

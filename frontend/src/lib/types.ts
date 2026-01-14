@@ -1,5 +1,10 @@
 import { VALID_TIMEZONES } from './dateUtils';
 
+export type MoneyValue = {
+	amount: number | null;
+	currency: string | null;
+};
+
 export type User = {
 	pk: number;
 	username: string;
@@ -13,6 +18,18 @@ export type User = {
 	has_password: boolean;
 	disable_password: boolean;
 	measurement_system: 'metric' | 'imperial';
+	default_currency: string;
+};
+
+export type Collaborator = {
+	uuid: string;
+	username: string;
+	first_name: string | null;
+	last_name: string | null;
+	profile_pic: string | null;
+	public_profile?: boolean;
+	is_owner: boolean;
+	is_current_user?: boolean;
 };
 
 export type ContentImage = {
@@ -29,6 +46,8 @@ export type Location = {
 	tags?: string[] | null;
 	description?: string | null;
 	rating?: number | null;
+	price?: number | null;
+	price_currency?: string | null;
 	link?: string | null;
 	images: ContentImage[];
 	visits: Visit[];
@@ -61,7 +80,6 @@ export type Country = {
 	id: number;
 	name: string;
 	country_code: string;
-	subregion: string;
 	flag_url: string;
 	capital: string;
 	num_regions: number;
@@ -126,6 +144,7 @@ export type Collection = {
 	is_public: boolean;
 	locations: Location[];
 	created_at?: string | null;
+	updated_at?: string | null;
 	start_date: string | null;
 	end_date: string | null;
 	transportations?: Transportation[];
@@ -134,7 +153,14 @@ export type Collection = {
 	checklists?: Checklist[];
 	is_archived?: boolean;
 	shared_with: string[] | undefined;
+	collaborators?: Collaborator[];
 	link?: string | null;
+	primary_image?: ContentImage | null;
+	primary_image_id?: string | null;
+	itinerary: CollectionItineraryItem[];
+	itinerary_days: CollectionItineraryDay[]; // Day metadata (names/descriptions)
+	status: 'folder' | 'upcoming' | 'in_progress' | 'completed';
+	days_until_start: number | null;
 };
 
 export type SlimCollection = {
@@ -152,6 +178,10 @@ export type SlimCollection = {
 	location_images: ContentImage[];
 	location_count: number;
 	shared_with: string[];
+	collaborators?: Collaborator[];
+	primary_image?: ContentImage | null;
+	status: 'folder' | 'upcoming' | 'in_progress' | 'completed';
+	days_until_start: number | null;
 };
 
 export type GeocodeSearchResult = {
@@ -172,6 +202,8 @@ export type Transportation = {
 	name: string;
 	description: string | null;
 	rating: number | null;
+	price: number | null;
+	price_currency: string | null;
 	link: string | null;
 	date: string | null; // ISO 8601 date string
 	end_date: string | null; // ISO 8601 date string
@@ -184,6 +216,8 @@ export type Transportation = {
 	origin_longitude: number | null;
 	destination_latitude: number | null;
 	destination_longitude: number | null;
+	start_code: string | null; // Could be airport code, station code, etc.
+	end_code: string | null; // Could be airport code, station code, etc.
 	is_public: boolean;
 	distance: number | null; // in kilometers
 	collection: Collection | null | string;
@@ -191,6 +225,7 @@ export type Transportation = {
 	updated_at: string; // ISO 8601 date string
 	images: ContentImage[]; // Array of images associated with the transportation
 	attachments: Attachment[]; // Array of attachments associated with the transportation
+	travel_duration_minutes?: number | null;
 };
 
 export type Note = {
@@ -312,6 +347,7 @@ export type Lodging = {
 	timezone: string | null;
 	reservation_number: string | null;
 	price: number | null;
+	price_currency: string | null;
 	latitude: number | null;
 	longitude: number | null;
 	location: string | null;
@@ -490,4 +526,68 @@ export type Pin = {
 	longitude: string;
 	is_visited?: boolean;
 	category: Category | null;
+};
+
+export type Recommendation = {
+	id: string;
+	external_id: string;
+	source: 'google' | 'osm';
+	name: string;
+	description: string | null;
+	latitude: number;
+	longitude: number;
+	address: string | null;
+	distance_km: number;
+	rating: number | null;
+	review_count: number | null;
+	price_level: string | null;
+	types: string[];
+	primary_type: string | null;
+	business_status: string | null;
+	is_open_now: boolean | null;
+	opening_hours: string[] | null;
+	phone_number: string | null;
+	website: string | null;
+	google_maps_url: string | null;
+	photos: string[];
+	is_verified: boolean;
+	quality_score: number;
+	// OSM-specific fields
+	osm_type?: string;
+	wikipedia?: string;
+	stars?: string;
+};
+
+export type RecommendationResponse = {
+	count: number;
+	results: Recommendation[];
+	sources_used: {
+		google: number;
+		osm: number;
+		total_before_dedup: number;
+	};
+};
+
+export type CollectionItineraryDay = {
+	id: string;
+	collection: string; // UUID of the collection
+	date: string; // ISO 8601 date string (YYYY-MM-DD)
+	name: string | null; // Optional custom name for the day
+	description: string | null; // Optional description for the day
+	created_at: string; // ISO 8601 date string
+	updated_at: string; // ISO 8601 date string
+};
+
+export type CollectionItineraryItem = {
+	id: string;
+	collection: string; // UUID of the collection
+	content_type: string; // Content type model name
+	object_id: string; // UUID of the referenced object
+	item: Visit | Transportation | Lodging | Note | Checklist; // The actual referenced object
+	date: string | null; // ISO 8601 date string
+	is_global?: boolean; // Trip-wide item (no specific date)
+	order: number; // Manual order within a day
+	created_at: string; // ISO 8601 date string
+	start_datetime: string | null; // Computed property - ISO 8601 date string
+	end_datetime: string | null; // Computed property - ISO 8601 date string
 };

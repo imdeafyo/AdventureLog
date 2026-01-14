@@ -108,7 +108,7 @@ export default defineConfig({
 
     footer: {
       message: "AdventureLog",
-      copyright: "Copyright © 2023-2025 Sean Morley",
+      copyright: "Copyright © 2023-2026 Sean Morley",
     },
 
     logo: "/adventurelog.png",
@@ -138,6 +138,10 @@ export default defineConfig({
             link: "/docs/install/kustomize",
           },
           { text: "Unraid 🧡", link: "/docs/install/unraid" },
+          {
+            text: "Dev Container + WSL 🧰",
+            link: "/docs/install/dev_container_wsl",
+          },
 
           {
             text: "With A Reverse Proxy",
@@ -204,6 +208,10 @@ export default defineConfig({
                 link: "https://www.authelia.com/integration/openid-connect/adventure-log/",
               },
               {
+                text: "Pocket ID",
+                link: "/docs/configuration/social_auth/pocket_id",
+              },
+              {
                 text: "Open ID Connect",
                 link: "/docs/configuration/social_auth/oidc",
               },
@@ -219,6 +227,10 @@ export default defineConfig({
           },
           { text: "SMTP Email", link: "/docs/configuration/email" },
           { text: "Umami Analytics", link: "/docs/configuration/analytics" },
+          {
+            text: "Advanced Configuration",
+            link: "/docs/configuration/advanced_configuration",
+          },
         ],
       },
       {
@@ -248,6 +260,10 @@ export default defineConfig({
             link: "/docs/guides/admin_panel",
           },
           {
+            text: "Invite a User",
+            link: "/docs/guides/invite_user",
+          },
+          {
             text: "v0.7.1 Migration Guide",
             link: "/docs/guides/v0-7-1_migration",
           },
@@ -257,6 +273,10 @@ export default defineConfig({
         text: "Changelogs",
         collapsed: false,
         items: [
+          {
+            text: "Development Timeline",
+            link: "/docs/changelogs/development_timeline",
+          },
           {
             text: "v0.11.0",
             link: "/docs/changelogs/v0-11-0",

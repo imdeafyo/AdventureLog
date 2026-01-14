@@ -6,5 +6,6 @@ def get_user_uuid(user):
 class CustomModelSerializer(serializers.ModelSerializer):
     def to_representation(self, instance):
         representation = super().to_representation(instance)
-        representation['user'] = get_user_uuid(instance.user)
+        if hasattr(instance, 'user') and instance.user:
+            representation['user'] = get_user_uuid(instance.user)
         return representation

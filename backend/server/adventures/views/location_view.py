@@ -1,15 +1,16 @@
 from django.utils import timezone
 from django.db import transaction
 from django.core.exceptions import PermissionDenied
-from django.db.models import Q, Max
+from django.db.models import Q, Max, Prefetch
 from django.db.models.functions import Lower
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 import requests
-from adventures.models import Location, Category
+from adventures.models import Location, Category, CollectionItineraryItem, Visit
+from django.contrib.contenttypes.models import ContentType
 from adventures.permissions import IsOwnerOrSharedWithFullAccess
-from adventures.serializers import LocationSerializer, MapPinSerializer
+from adventures.serializers import LocationSerializer, MapPinSerializer, CalendarLocationSerializer
 from adventures.utils import pagination
 
 class LocationViewSet(viewsets.ModelViewSet):
@@ -208,6 +209,29 @@ class LocationViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(queryset, many=True, context={'nested': nested, 'allowed_nested_fields': allowedNestedFields})
         return Response(serializer.data)
 
+    @action(detail=False, methods=['get'])
+    def calendar(self, request):
+        """Return a lightweight payload for calendar rendering."""
+        if not request.user.is_authenticated:
+            return Response({"error": "User is not authenticated"}, status=400)
+
+        queryset = (
+            self.get_queryset()
+            .filter(visits__isnull=False)
+            .select_related('category')
+            .prefetch_related(
+                Prefetch(
+                    'visits',
+                    queryset=Visit.objects.only('id', 'start_date', 'end_date', 'timezone')
+                )
+            )
+            .only('id', 'name', 'location', 'category__name', 'category__icon')
+            .distinct()
+        )
+
+        serializer = CalendarLocationSerializer(queryset, many=True)
+        return Response(serializer.data)
+
     @action(detail=True, methods=['get'], url_path='additional-info')
     def additional_info(self, request, pk=None):
         """Get adventure with additional sunrise/sunset information."""
@@ -277,6 +301,25 @@ class LocationViewSet(viewsets.ModelViewSet):
                     raise PermissionDenied(
                         f"You don't have permission to remove this location from one of the collections it's linked to.'"
                     )
+            else:
+                # If the removal is permitted, also remove any itinerary items
+                # in this collection that reference this Location instance.
+                try:
+                    ct = ContentType.objects.get_for_model(instance.__class__)
+                    # Try deleting by native PK type first, then by string.
+                    qs = CollectionItineraryItem.objects.filter(
+                        collection=collection, content_type=ct, object_id=instance.pk
+                    )
+                    if qs.exists():
+                        qs.delete()
+                    else:
+                        CollectionItineraryItem.objects.filter(
+                            collection=collection, content_type=ct, object_id=str(instance.pk)
+                        ).delete()
+                except Exception:
+                    # Don't raise on cleanup failures; deletion of itinerary items
+                    # is best-effort and shouldn't block the update operation.
+                    pass
 
     def _validate_collection_permissions(self, collections):
         """Validate permissions for all collections (used in create)."""

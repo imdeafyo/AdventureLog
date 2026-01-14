@@ -31,3 +31,5 @@ AdventureLog is open-source software, licensed under the GPL-3.0 license. This m
 Hi, I'm [Sean Morley](https://seanmorley.com), the creator of AdventureLog. I'm an Electrical Engineering student at the University of Connecticut, and I'm passionate about open-source software and building modern tools that help people solve real-world problems. I created AdventureLog to solve a problem: the lack of a modern, open-source, user-friendly travel companion. Many existing travel apps are either too complex, too expensive, or too closed-off to be useful for the average traveler. AdventureLog aims to be the opposite: simple, beautiful, and open to everyone.
 
 I hope you enjoy using AdventureLog as much as I enjoy creating it! If you have any questions, feedback, or suggestions, feel free to reach out to me via the email address listed on my website. I'm always happy to hear from users and help in any way I can. Thank you for using AdventureLog, and happy travels! 🌍
+
+If you want to check out the origins of AdventureLog and the timeline, process, and story of its development, check out the [Development Timeline](/docs/changelogs/development_timeline.md).

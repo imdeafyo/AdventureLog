@@ -70,7 +70,13 @@ export const actions: Actions = {
 		const loginResponse = await loginFetch.json();
 
 		if (!loginFetch.ok) {
-			return fail(loginFetch.status, { message: loginResponse.errors[0].code });
+			// If backend returns 401, signup succeeded but email verification is required.
+			// Return an i18n key (not raw text) so the frontend can show the proper message.
+			if (loginFetch.status === 401) {
+				return { message: 'auth.user_email_verification_required' };
+			}
+
+			return fail(loginFetch.status, { message: loginResponse?.errors?.[0]?.code });
 		} else {
 			const setCookieHeader = loginFetch.headers.get('Set-Cookie');
 

@@ -91,8 +91,13 @@ class GenerateDescription(viewsets.ViewSet):
 
         try:
             candidates = self.get_candidate_pages(name, lang)
+            found_images = []
             
             for candidate in candidates:
+                # Stop after finding 5 valid images
+                if len(found_images) >= 8:
+                    break
+                    
                 page_data = self.fetch_page(
                     lang=lang,
                     candidate=candidate,
@@ -113,13 +118,29 @@ class GenerateDescription(viewsets.ViewSet):
                 # Try original image first
                 original_image = page_data.get('original')
                 if original_image and self.is_valid_image(original_image.get('source')):
-                    return Response(original_image)
+                    found_images.append({
+                        'source': original_image.get('source'),
+                        'width': original_image.get('width'),
+                        'height': original_image.get('height'),
+                        'title': page_data.get('title'),
+                        'type': 'original'
+                    })
+                    continue
 
                 # Fall back to thumbnail
                 thumbnail_image = page_data.get('thumbnail')
                 if thumbnail_image and self.is_valid_image(thumbnail_image.get('source')):
-                    return Response(thumbnail_image)
+                    found_images.append({
+                        'source': thumbnail_image.get('source'),
+                        'width': thumbnail_image.get('width'),
+                        'height': thumbnail_image.get('height'),
+                        'title': page_data.get('title'),
+                        'type': 'thumbnail'
+                    })
 
+            if found_images:
+                return Response({"images": found_images})
+            
             return Response({"error": "No image found"}, status=404)
 
         except requests.exceptions.RequestException:

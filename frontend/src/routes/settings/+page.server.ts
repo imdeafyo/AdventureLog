@@ -130,6 +130,7 @@ export const actions: Actions = {
 			let profile_pic = formData.get('profile_pic') as File | null | undefined;
 			let public_profile = formData.get('public_profile') as string | null | undefined | boolean;
 			let measurement_system = formData.get('measurement_system') as string | null | undefined;
+			let default_currency = formData.get('default_currency') as string | null | undefined;
 
 			const resCurrent = await fetch(`${endpoint}/auth/user-metadata/`, {
 				headers: {
@@ -156,6 +157,10 @@ export const actions: Actions = {
 				measurement_system = 'metric';
 			}
 
+			if (default_currency !== null && typeof default_currency === 'string') {
+				default_currency = default_currency.trim().toUpperCase();
+			}
+
 			let currentUser = (await resCurrent.json()) as User;
 
 			if (username === currentUser.username || !username) {
@@ -169,6 +174,9 @@ export const actions: Actions = {
 			}
 			if (currentUser.profile_pic && profile_pic?.size === 0) {
 				profile_pic = undefined;
+			}
+			if (!default_currency || default_currency === currentUser.default_currency) {
+				default_currency = undefined;
 			}
 
 			let formDataToSend = new FormData();
@@ -187,6 +195,9 @@ export const actions: Actions = {
 			}
 			formDataToSend.append('public_profile', public_profile.toString());
 			formDataToSend.append('measurement_system', measurement_system.toString());
+			if (default_currency) {
+				formDataToSend.append('default_currency', default_currency);
+			}
 
 			let csrfToken = await fetchCSRFToken();
 

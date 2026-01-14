@@ -1,55 +1,41 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
-	import { MapLibre, Marker, MapEvents } from 'svelte-maplibre';
 	import { t } from 'svelte-i18n';
-	import { getBasemapUrl } from '$lib';
 	import CategoryDropdown from '../CategoryDropdown.svelte';
-	import type { Collection, Location } from '$lib/types';
-
-	// Icons
-	import SearchIcon from '~icons/mdi/magnify';
-	import LocationIcon from '~icons/mdi/crosshairs-gps';
+	import LocationSearchMap from '../shared/LocationSearchMap.svelte';
+	import MoneyInput from '../shared/MoneyInput.svelte';
+	import MarkdownEditor from '../MarkdownEditor.svelte';
+	import TagComplete from '../TagComplete.svelte';
+	import { DEFAULT_CURRENCY, normalizeMoneyPayload, toMoneyValue } from '$lib/money';
+	import type { Category, Collection, Location, MoneyValue, User } from '$lib/types';
 	import MapIcon from '~icons/mdi/map';
-	import CheckIcon from '~icons/mdi/check';
-	import ClearIcon from '~icons/mdi/close';
-	import PinIcon from '~icons/mdi/map-marker';
 	import InfoIcon from '~icons/mdi/information';
 	import CategoryIcon from '~icons/mdi/tag';
 	import GenerateIcon from '~icons/mdi/lightning-bolt';
 	import ArrowLeftIcon from '~icons/mdi/arrow-left';
 	import SaveIcon from '~icons/mdi/content-save';
-	import type { Category, User } from '$lib/types';
-	import MarkdownEditor from '../MarkdownEditor.svelte';
-	import TagComplete from '../TagComplete.svelte';
+	import ClearIcon from '~icons/mdi/close-circle';
 
 	const dispatch = createEventDispatcher();
 
-	// Location selection properties
-	let searchQuery = '';
-	let searchResults: any[] = [];
-	let selectedLocation: any = null;
-	let mapCenter: [number, number] = [-74.5, 40];
-	let mapZoom = 2;
-	let isSearching = false;
 	let isReverseGeocoding = false;
-	let searchTimeout: ReturnType<typeof setTimeout>;
-	let mapComponent: any;
-	let selectedMarker: { lng: number; lat: number } | null = null;
+	let defaultCurrency = DEFAULT_CURRENCY;
+	let moneyValue: MoneyValue = { amount: null, currency: DEFAULT_CURRENCY };
 
-	// Enhanced location data
-	let locationData: {
-		city?: { name: string; id: string; visited: boolean };
-		region?: { name: string; id: string; visited: boolean };
-		country?: { name: string; country_code: string; visited: boolean };
-		display_name?: string;
-		location_name?: string;
+	let initialSelection: {
+		name: string;
+		lat: number;
+		lng: number;
+		location: string;
+		category?: any;
 	} | null = null;
 
-	// Form data properties
 	let location: {
 		name: string;
 		category: Category | null;
 		rating: number;
+		price: number | null;
+		price_currency: string | null;
 		is_public: boolean;
 		link: string;
 		description: string;
@@ -62,6 +48,8 @@
 		name: '',
 		category: null,
 		rating: NaN,
+		price: null,
+		price_currency: DEFAULT_CURRENCY,
 		is_public: false,
 		link: '',
 		description: '',
@@ -78,7 +66,6 @@
 	let isGeneratingDesc = false;
 	let ownerUser: User | null = null;
 
-	// Props (would be passed in from parent component)
 	export let initialLocation: any = null;
 	export let currentUser: any = null;
 	export let editingLocation: any = null;
@@ -86,199 +73,40 @@
 
 	$: user = currentUser;
 	$: locationToEdit = editingLocation;
-
-	// Location selection functions
-	async function searchLocations(query: string) {
-		if (!query.trim() || query.length < 3) {
-			searchResults = [];
-			return;
-		}
-
-		isSearching = true;
-		try {
-			const response = await fetch(
-				`/api/reverse-geocode/search/?query=${encodeURIComponent(query)}`
-			);
-			const results = await response.json();
-
-			searchResults = results.map((result: any) => ({
-				id: result.name + result.lat + result.lon,
-				name: result.name,
-				lat: parseFloat(result.lat),
-				lng: parseFloat(result.lon),
-				type: result.type,
-				category: result.category,
-				location: result.display_name,
-				importance: result.importance,
-				powered_by: result.powered_by
-			}));
-		} catch (error) {
-			console.error('Search error:', error);
-			searchResults = [];
-		} finally {
-			isSearching = false;
+	$: defaultCurrency = (user && user.default_currency) || DEFAULT_CURRENCY;
+	$: moneyValue =
+		location.price === null
+			? { amount: null, currency: location.price_currency || null }
+			: toMoneyValue(location.price, location.price_currency, defaultCurrency);
+	$: {
+		if (location.price !== null && !location.price_currency) {
+			location.price_currency = defaultCurrency;
 		}
 	}
-
-	function handleSearchInput() {
-		clearTimeout(searchTimeout);
-		searchTimeout = setTimeout(() => {
-			searchLocations(searchQuery);
-		}, 300);
-	}
-
-	async function selectSearchResult(searchResult: any) {
-		selectedLocation = searchResult;
-		selectedMarker = { lng: searchResult.lng, lat: searchResult.lat };
-		mapCenter = [searchResult.lng, searchResult.lat];
-		mapZoom = 14;
-		searchResults = [];
-		searchQuery = searchResult.name;
-
-		// Update form data
-		if (!location.name) location.name = searchResult.name;
-		location.latitude = searchResult.lat;
-		location.longitude = searchResult.lng;
-		location.name = searchResult.name;
-
-		await performDetailedReverseGeocode(searchResult.lat, searchResult.lng);
-	}
-
-	async function handleMapClick(e: { detail: { lngLat: { lng: number; lat: number } } }) {
-		selectedMarker = {
-			lng: e.detail.lngLat.lng,
-			lat: e.detail.lngLat.lat
-		};
-
-		await reverseGeocode(e.detail.lngLat.lng, e.detail.lngLat.lat);
-	}
-
-	async function reverseGeocode(lng: number, lat: number) {
-		isReverseGeocoding = true;
-
-		try {
-			const response = await fetch(`/api/reverse-geocode/search/?query=${lat},${lng}`);
-			const results = await response.json();
-
-			if (results && results.length > 0) {
-				const result = results[0];
-				selectedLocation = {
-					name: result.name,
-					lat: lat,
-					lng: lng,
-					location: result.display_name,
-					type: result.type,
-					category: result.category
-				};
-				searchQuery = result.name;
-				if (!location.name) location.name = result.name;
-			} else {
-				selectedLocation = {
-					name: `Location at ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-					lat: lat,
-					lng: lng,
-					location: `${lat.toFixed(4)}, ${lng.toFixed(4)}`
-				};
-				searchQuery = selectedLocation.name;
-				if (!location.name) location.name = selectedLocation.name;
-			}
-
-			location.latitude = lat;
-			location.longitude = lng;
-			location.location = selectedLocation.location;
-
-			await performDetailedReverseGeocode(lat, lng);
-		} catch (error) {
-			console.error('Reverse geocoding error:', error);
-			selectedLocation = {
-				name: `Location at ${lat.toFixed(4)}, ${lng.toFixed(4)}`,
-				lat: lat,
-				lng: lng,
-				location: `${lat.toFixed(4)}, ${lng.toFixed(4)}`
-			};
-			searchQuery = selectedLocation.name;
-			if (!location.name) location.name = selectedLocation.name;
-			location.latitude = lat;
-			location.longitude = lng;
-			location.location = selectedLocation.location;
-			locationData = null;
-		} finally {
-			isReverseGeocoding = false;
-		}
-	}
-
-	async function performDetailedReverseGeocode(lat: number, lng: number) {
-		try {
-			const response = await fetch(
-				`/api/reverse-geocode/reverse_geocode/?lat=${lat}&lon=${lng}&format=json`
-			);
-
-			if (response.ok) {
-				const data = await response.json();
-				locationData = {
-					city: data.city
-						? {
-								name: data.city,
-								id: data.city_id,
-								visited: data.city_visited || false
-							}
-						: undefined,
-					region: data.region
-						? {
-								name: data.region,
-								id: data.region_id,
-								visited: data.region_visited || false
-							}
-						: undefined,
-					country: data.country
-						? {
-								name: data.country,
-								country_code: data.country_id,
-								visited: false
-							}
-						: undefined,
-					display_name: data.display_name,
-					location_name: data.location_name
-				};
-				location.location = data.display_name;
-			} else {
-				locationData = null;
-			}
-		} catch (error) {
-			console.error('Detailed reverse geocoding error:', error);
-			locationData = null;
-		}
-	}
-
-	function useCurrentLocation() {
-		if ('geolocation' in navigator) {
-			navigator.geolocation.getCurrentPosition(
-				async (position) => {
-					const lat = position.coords.latitude;
-					const lng = position.coords.longitude;
-					selectedMarker = { lng, lat };
-					mapCenter = [lng, lat];
-					mapZoom = 14;
-					await reverseGeocode(lng, lat);
-				},
-				(error) => {
-					console.error('Geolocation error:', error);
+	$: initialSelection =
+		initialLocation && initialLocation.latitude && initialLocation.longitude
+			? {
+					name: initialLocation.name || '',
+					lat: Number(initialLocation.latitude),
+					lng: Number(initialLocation.longitude),
+					location: initialLocation.location || ''
 				}
-			);
-		}
+			: null;
+
+	function handleLocationUpdate(
+		event: CustomEvent<{ name?: string; lat: number; lng: number; location: string }>
+	) {
+		const { name, lat, lng, location: displayName } = event.detail;
+		if (!location.name && name) location.name = name;
+		location.latitude = lat;
+		location.longitude = lng;
+		location.location = displayName;
 	}
 
-	function clearLocationSelection() {
-		selectedLocation = null;
-		selectedMarker = null;
-		locationData = null;
-		searchQuery = '';
-		searchResults = [];
+	function handleLocationClear() {
 		location.latitude = null;
 		location.longitude = null;
 		location.location = '';
-		mapCenter = [-74.5, 40];
-		mapZoom = 2;
 	}
 
 	async function generateDesc() {
@@ -288,7 +116,6 @@
 		wikiError = '';
 
 		try {
-			// Mock Wikipedia API call - replace with actual implementation
 			const response = await fetch(`/api/generate/desc/?name=${encodeURIComponent(location.name)}`);
 			if (response.ok) {
 				const data = await response.json();
@@ -308,7 +135,6 @@
 			return;
 		}
 
-		// round latitude and longitude to 6 decimal places
 		if (location.latitude !== null && typeof location.latitude === 'number') {
 			location.latitude = parseFloat(location.latitude.toFixed(6));
 		}
@@ -319,12 +145,14 @@
 			location.collections = [collection.id];
 		}
 
-		// Build payload and avoid sending an empty `collections` array when editing
-		const payload: any = { ...location };
+		let payload: any = { ...location };
+		if (location.price === null) {
+			payload.price = null;
+			payload.price_currency = null;
+		} else {
+			payload = normalizeMoneyPayload(payload, 'price', 'price_currency', defaultCurrency);
+		}
 
-		// If we're editing and the original location had collections, but the form's collections
-		// is empty (i.e. user didn't modify collections), omit collections from payload so the
-		// server doesn't clear them unintentionally.
 		if (locationToEdit && locationToEdit.id) {
 			if (
 				(!payload.collections || payload.collections.length === 0) &&
@@ -334,25 +162,23 @@
 				delete payload.collections;
 			}
 
-			let res = await fetch(`/api/locations/${locationToEdit.id}`, {
+			const res = await fetch(`/api/locations/${locationToEdit.id}`, {
 				method: 'PATCH',
 				headers: {
 					'Content-Type': 'application/json'
 				},
 				body: JSON.stringify(payload)
 			});
-			let updatedLocation = await res.json();
-			location = updatedLocation;
+			location = await res.json();
 		} else {
-			let res = await fetch(`/api/locations`, {
+			const res = await fetch(`/api/locations`, {
 				method: 'POST',
 				headers: {
 					'Content-Type': 'application/json'
 				},
 				body: JSON.stringify(payload)
 			});
-			let newLocation = await res.json();
-			location = newLocation;
+			location = await res.json();
 		}
 
 		dispatch('save', {
@@ -364,44 +190,32 @@
 		dispatch('back');
 	}
 
-	onMount(async () => {
-		if (initialLocation.latitude && initialLocation.longitude) {
-			selectedMarker = {
-				lng: initialLocation.longitude,
-				lat: initialLocation.latitude
-			};
+	onMount(() => {
+		if (initialLocation && initialLocation.latitude && initialLocation.longitude) {
 			location.latitude = initialLocation.latitude;
 			location.longitude = initialLocation.longitude;
-			mapCenter = [initialLocation.longitude, initialLocation.latitude];
-			mapZoom = 14;
-			selectedLocation = {
-				name: initialLocation.name || '',
-				lat: initialLocation.latitude,
-				lng: initialLocation.longitude,
-				location: initialLocation.location || '',
-				type: 'point',
-				category: initialLocation.category || null
-			};
-			selectedMarker = {
-				lng: Number(initialLocation.longitude),
-				lat: Number(initialLocation.latitude)
-			};
-			// trigger reverse geocoding to populate location data
-			await performDetailedReverseGeocode(initialLocation.latitude, initialLocation.longitude);
+			if (!location.name) location.name = initialLocation.name || '';
+			if (initialLocation.location) location.location = initialLocation.location;
 		}
 	});
 
 	onMount(() => {
 		if (initialLocation && typeof initialLocation === 'object') {
-			// Only update location properties if they don't already have values
-			// This prevents overwriting user selections
 			if (!location.name) location.name = initialLocation.name || '';
 			if (!location.link) location.link = initialLocation.link || '';
 			if (!location.description) location.description = initialLocation.description || '';
 			if (Number.isNaN(location.rating)) location.rating = initialLocation.rating || NaN;
+			if (location.price === null || location.price === undefined) {
+				const money = toMoneyValue(
+					initialLocation.price,
+					initialLocation.price_currency,
+					defaultCurrency
+				);
+				location.price = money.amount;
+				location.price_currency = money.currency;
+			}
 			if (location.is_public === false) location.is_public = initialLocation.is_public || false;
 
-			// Only set category if location doesn't have one or if initialLocation has a valid category
 			if (!location.category || !location.category.id) {
 				if (initialLocation.category && initialLocation.category.id) {
 					location.category = initialLocation.category;
@@ -412,7 +226,6 @@
 				location.tags = initialLocation.tags;
 			}
 
-			// Preserve existing collections when editing so we don't accidentally send an empty array
 			if (initialLocation.collections && Array.isArray(initialLocation.collections)) {
 				location.collections = initialLocation.collections.map((c: any) =>
 					typeof c === 'string' ? c : c.id
@@ -436,9 +249,8 @@
 			}
 		}
 
-		searchQuery = initialLocation.name || '';
 		return () => {
-			clearTimeout(searchTimeout);
+			// no-op
 		};
 	});
 </script>
@@ -497,6 +309,20 @@
 								</div>
 							{/if}
 						</div>
+
+						<MoneyInput
+							label={$t('adventures.price')}
+							value={moneyValue}
+							on:change={(event) => {
+								location.price = event.detail.amount;
+								location.price_currency = event.detail.currency;
+
+								// If an amount exists but no currency is chosen, fall back to the user's default
+								if (location.price !== null && !location.price_currency) {
+									location.price_currency = defaultCurrency;
+								}
+							}}
+						/>
 
 						<!-- Rating Field -->
 						<div class="form-control">
@@ -618,7 +444,6 @@
 					<h2 class="text-xl font-bold">{$t('adventures.tags')} ({location.tags?.length || 0})</h2>
 				</div>
 				<div class="space-y-4">
-					<!-- Hidden input for form submission (same as old version) -->
 					<input
 						type="text"
 						id="tags"
@@ -627,7 +452,6 @@
 						bind:value={location.tags}
 						class="input input-bordered w-full"
 					/>
-					<!-- Use the same ActivityComplete component as the old version -->
 					<TagComplete bind:tags={location.tags} />
 				</div>
 			</div>
@@ -643,191 +467,14 @@
 					<h2 class="text-xl font-bold">{$t('adventures.location_map')}</h2>
 				</div>
 
-				<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-					<!-- Search & Controls -->
-					<div class="space-y-4">
-						<!-- Location Display Name Input -->
-						<div class="form-control">
-							<label class="label" for="location-display">
-								<span class="label-text font-medium">{$t('adventures.location_display_name')}</span>
-							</label>
-							<input
-								type="text"
-								id="location-display"
-								bind:value={location.location}
-								class="input input-bordered bg-base-100/80 focus:bg-base-100"
-								placeholder="Enter location display name"
-							/>
-						</div>
-
-						<!-- Search Input -->
-						<div class="form-control">
-							<label class="label" for="search-location">
-								<span class="label-text font-medium">{$t('adventures.search_location')}</span>
-							</label>
-							<div class="relative">
-								<div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-									<SearchIcon class="w-4 h-4 text-base-content/40" />
-								</div>
-								<input
-									type="text"
-									id="search-location"
-									bind:value={searchQuery}
-									on:input={handleSearchInput}
-									placeholder="Enter city, location, or landmark..."
-									class="input input-bordered w-full pl-10 pr-4 bg-base-100/80 focus:bg-base-100"
-									class:input-primary={selectedLocation}
-								/>
-								{#if searchQuery && !selectedLocation}
-									<button
-										class="absolute inset-y-0 right-0 pr-3 flex items-center"
-										on:click={clearLocationSelection}
-									>
-										<ClearIcon class="w-4 h-4 text-base-content/40 hover:text-base-content" />
-									</button>
-								{/if}
-							</div>
-						</div>
-
-						<!-- Search Results -->
-						{#if isSearching}
-							<div class="flex items-center justify-center py-4">
-								<span class="loading loading-spinner loading-sm"></span>
-								<span class="ml-2 text-sm text-base-content/60"
-									>{$t('adventures.searching')}...</span
-								>
-							</div>
-						{:else if searchResults.length > 0}
-							<div class="space-y-2">
-								<div class="label">
-									<span class="label-text text-sm font-medium"
-										>{$t('adventures.search_results')}</span
-									>
-								</div>
-								<div class="max-h-48 overflow-y-auto space-y-1">
-									{#each searchResults as result}
-										<button
-											class="w-full text-left p-3 rounded-lg border border-base-300 hover:bg-base-100 hover:border-primary/50 transition-colors"
-											on:click={() => selectSearchResult(result)}
-										>
-											<div class="flex items-start gap-3">
-												<PinIcon class="w-4 h-4 text-primary mt-1 flex-shrink-0" />
-												<div class="min-w-0 flex-1">
-													<div class="font-medium text-sm truncate">{result.name}</div>
-													<div class="text-xs text-base-content/60 truncate">{result.location}</div>
-													{#if result.category}
-														<div class="text-xs text-primary/70 capitalize">{result.category}</div>
-													{/if}
-												</div>
-											</div>
-										</button>
-									{/each}
-								</div>
-							</div>
-						{/if}
-
-						<!-- Current Location Button -->
-						<div class="flex items-center gap-2">
-							<div class="divider divider-horizontal text-xs">{$t('adventures.or')}</div>
-						</div>
-
-						<button class="btn btn-outline gap-2 w-full" on:click={useCurrentLocation}>
-							<LocationIcon class="w-4 h-4" />
-							{$t('adventures.use_current_location')}
-						</button>
-
-						<!-- Selected Location Display -->
-						{#if selectedLocation && selectedMarker}
-							<div class="card bg-success/10 border border-success/30">
-								<div class="card-body p-4">
-									<div class="flex items-start gap-3">
-										<div class="p-2 bg-success/20 rounded-lg">
-											<CheckIcon class="w-4 h-4 text-success" />
-										</div>
-										<div class="flex-1 min-w-0">
-											<h4 class="font-semibold text-success mb-1">
-												{$t('adventures.location_selected')}
-											</h4>
-											<p class="text-sm text-base-content/80 truncate">{selectedLocation.name}</p>
-											<p class="text-xs text-base-content/60 mt-1">
-												{selectedMarker.lat.toFixed(6)}, {selectedMarker.lng.toFixed(6)}
-											</p>
-
-											<!-- Geographic Tags -->
-											{#if locationData?.city || locationData?.region || locationData?.country}
-												<div class="flex flex-wrap gap-2 mt-3">
-													{#if locationData.city}
-														<div class="badge badge-info badge-sm gap-1">
-															🏙️ {locationData.city.name}
-														</div>
-													{/if}
-													{#if locationData.region}
-														<div class="badge badge-warning badge-sm gap-1">
-															🗺️ {locationData.region.name}
-														</div>
-													{/if}
-													{#if locationData.country}
-														<div class="badge badge-success badge-sm gap-1">
-															🌎 {locationData.country.name}
-														</div>
-													{/if}
-												</div>
-											{/if}
-										</div>
-										<button class="btn btn-ghost btn-sm" on:click={clearLocationSelection}>
-											<ClearIcon class="w-4 h-4" />
-										</button>
-									</div>
-								</div>
-							</div>
-						{/if}
-					</div>
-
-					<!-- Map -->
-					<div class="space-y-4">
-						<div class="flex items-center justify-between">
-							<div class="label">
-								<span class="label-text font-medium">{$t('worldtravel.interactive_map')}</span>
-							</div>
-							{#if isReverseGeocoding}
-								<div class="flex items-center gap-2">
-									<span class="loading loading-spinner loading-sm"></span>
-									<span class="text-sm text-base-content/60"
-										>{$t('worldtravel.getting_location_details')}...</span
-									>
-								</div>
-							{/if}
-						</div>
-
-						<div class="relative">
-							<MapLibre
-								bind:this={mapComponent}
-								style={getBasemapUrl()}
-								class="w-full h-80 rounded-lg border border-base-300"
-								center={mapCenter}
-								zoom={mapZoom}
-								standardControls
-							>
-								<MapEvents on:click={handleMapClick} />
-
-								{#if selectedMarker}
-									<Marker
-										lngLat={[selectedMarker.lng, selectedMarker.lat]}
-										class="grid h-8 w-8 place-items-center rounded-full border-2 border-white bg-primary shadow-lg cursor-pointer"
-									>
-										<PinIcon class="w-5 h-5 text-primary-content" />
-									</Marker>
-								{/if}
-							</MapLibre>
-						</div>
-
-						{#if !selectedMarker}
-							<p class="text-sm text-base-content/60 text-center">
-								{$t('adventures.click_on_map')}
-							</p>
-						{/if}
-					</div>
-				</div>
+				<LocationSearchMap
+					{initialSelection}
+					bind:isReverseGeocoding
+					bind:displayName={location.location}
+					displayNamePosition="before"
+					on:update={handleLocationUpdate}
+					on:clear={handleLocationClear}
+				/>
 			</div>
 		</div>
 

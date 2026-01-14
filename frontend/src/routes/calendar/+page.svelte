@@ -1,48 +1,47 @@
 <script lang="ts">
 	import type { PageData } from './$types';
-	// @ts-ignore
-	import Calendar from '@event-calendar/core';
-	// @ts-ignore
-	import TimeGrid from '@event-calendar/time-grid';
-	// @ts-ignore
-	import DayGrid from '@event-calendar/day-grid';
-	// @ts-ignore
-	import Interaction from '@event-calendar/interaction';
 	import { t } from 'svelte-i18n';
-	import { onMount } from 'svelte';
 	import CalendarIcon from '~icons/mdi/calendar';
 	import DownloadIcon from '~icons/mdi/download';
 	import FilterIcon from '~icons/mdi/filter-variant';
-	import CloseIcon from '~icons/mdi/close';
-	import MapMarkerIcon from '~icons/mdi/map-marker';
-	import ClockIcon from '~icons/mdi/clock';
 	import SearchIcon from '~icons/mdi/magnify';
 	import ClearIcon from '~icons/mdi/close';
-	import { marked } from 'marked'; // Import the markdown parser
+	import CalendarComponent from '$lib/components/calendar/Calendar.svelte';
+	import EventDetailsModal from '$lib/components/calendar/EventDetailsModal.svelte';
 
 	export let data: PageData;
-
-	const renderMarkdown = (markdown: string) => {
-		return marked(markdown);
-	};
 
 	let locations = data.props.adventures;
 	let allDates = data.props.dates;
 	let filteredDates = [...allDates];
 
-	let icsCalendar = data.props.ics_calendar;
-	let icsCalendarDataUrl = URL.createObjectURL(new Blob([icsCalendar], { type: 'text/calendar' }));
+	let eventDetails: Record<string, { description?: string | null; location?: string | null }> = {};
+	let loadingDetailIds = new Set<string>();
+	let isLoadingDetails = false;
+	let detailsError = '';
+	let isDownloadingIcs = false;
+
+	$: selectedAdventureDetails =
+		selectedEvent?.extendedProps?.adventureId &&
+		eventDetails[selectedEvent.extendedProps.adventureId]
+			? eventDetails[selectedEvent.extendedProps.adventureId]
+			: null;
+
+	$: currentLocation = selectedEvent?.extendedProps
+		? (selectedAdventureDetails?.location ?? selectedEvent.extendedProps.location)
+		: '';
+
+	$: descriptionToShow = selectedEvent?.extendedProps
+		? (selectedAdventureDetails?.description ?? selectedEvent.extendedProps.description)
+		: '';
 
 	// Modal state
 	let selectedEvent: any = null;
 	let showEventModal = false;
 
 	// Filter state
-	let showFilters = false;
 	let searchFilter = '';
 	let sidebarOpen = false;
-
-	// Get unique categories for filter
 
 	// Apply filters
 	$: {
@@ -56,34 +55,16 @@
 		});
 	}
 
-	let plugins = [TimeGrid, DayGrid, Interaction];
-	$: options = {
-		view: 'dayGridMonth',
-		events: filteredDates,
-		headerToolbar: {
-			start: 'prev,next today',
-			center: 'title',
-			end: 'dayGridMonth,timeGridWeek,timeGridDay'
-		},
-		buttonText: {
-			today: $t('calendar.today'),
-			dayGridMonth: $t('calendar.month'),
-			timeGridWeek: $t('calendar.week'),
-			timeGridDay: $t('calendar.day')
-		},
-		height: 'auto',
-		eventDisplay: 'block',
-		dayMaxEvents: 3,
-		moreLinkText: (num: number) => `+${num} more`,
-		eventClick: (info: any) => {
-			selectedEvent = info.event;
-			showEventModal = true;
-		},
-		eventMouseEnter: (info: any) => {
-			info.el.style.cursor = 'pointer';
-		},
-		themeSystem: 'standard'
-	};
+	function handleEventClick(event: any) {
+		selectedEvent = event;
+		showEventModal = true;
+		detailsError = '';
+
+		const adventureId = event?.extendedProps?.adventureId;
+		if (adventureId) {
+			fetchEventDetails(adventureId);
+		}
+	}
 
 	function clearFilters() {
 		searchFilter = '';
@@ -92,85 +73,66 @@
 	function closeModal() {
 		showEventModal = false;
 		selectedEvent = null;
+		detailsError = '';
 	}
 
 	function toggleSidebar() {
 		sidebarOpen = !sidebarOpen;
 	}
 
-	onMount(() => {
-		// Add custom CSS for calendar styling
-		const style = document.createElement('style');
-		style.textContent = `
-			.ec-toolbar {
-				background: hsl(var(--b2)) !important;
-				border-radius: 0.75rem !important;
-				padding: 1.25rem !important;
-				margin-bottom: 1.5rem !important;
-				border: 1px solid hsl(var(--b3)) !important;
-				box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1) !important;
+	async function fetchEventDetails(adventureId: string) {
+		if (eventDetails[adventureId] || loadingDetailIds.has(adventureId)) return;
+
+		loadingDetailIds.add(adventureId);
+		isLoadingDetails = true;
+		detailsError = '';
+
+		try {
+			const response = await fetch(`/api/locations/${adventureId}/`);
+			if (!response.ok) {
+				throw new Error('Failed to load event details');
 			}
-			.ec-button {
-				background: hsl(var(--b3)) !important;
-				border: 1px solid hsl(var(--b3)) !important;
-				color: hsl(var(--bc)) !important;
-				border-radius: 0.5rem !important;
-				padding: 0.5rem 1rem !important;
-				font-weight: 500 !important;
-				transition: all 0.2s ease !important;
+
+			const detail = await response.json();
+			eventDetails = {
+				...eventDetails,
+				[adventureId]: {
+					description: detail.description,
+					location: detail.location ?? ''
+				}
+			};
+		} catch (error) {
+			detailsError = 'Unable to load event details right now.';
+		} finally {
+			loadingDetailIds.delete(adventureId);
+			isLoadingDetails = loadingDetailIds.size > 0;
+		}
+	}
+
+	async function downloadIcs() {
+		if (isDownloadingIcs) return;
+
+		isDownloadingIcs = true;
+
+		try {
+			const response = await fetch('/api/ics-calendar/generate/');
+			if (!response.ok) {
+				throw new Error('Unable to generate calendar');
 			}
-			.ec-button:hover {
-				background: hsl(var(--b1)) !important;
-				transform: translateY(-1px) !important;
-				box-shadow: 0 4px 12px rgb(0 0 0 / 0.15) !important;
-			}
-			.ec-button.ec-button-active {
-				background: hsl(var(--p)) !important;
-				color: hsl(var(--pc)) !important;
-				box-shadow: 0 4px 12px hsl(var(--p) / 0.3) !important;
-			}
-			.ec-day {
-				background: hsl(var(--b1)) !important;
-				border: 1px solid hsl(var(--b3)) !important;
-				transition: background-color 0.2s ease !important;
-			}
-			.ec-day:hover {
-				background: hsl(var(--b2)) !important;
-			}
-			.ec-day-today {
-				background: hsl(var(--b2)) !important;
-				position: relative !important;
-			}
-			.ec-day-today::before {
-				content: '' !important;
-				position: absolute !important;
-				top: 0 !important;
-				left: 0 !important;
-				right: 0 !important;
-				height: 3px !important;
-				background: hsl(var(--p)) !important;
-				border-radius: 0.25rem !important;
-			}
-			.ec-event {
-				border-radius: 0.375rem !important;
-				padding: 0.25rem 0.5rem !important;
-				font-size: 0.75rem !important;
-				font-weight: 600 !important;
-				transition: all 0.2s ease !important;
-				box-shadow: 0 1px 3px rgb(0 0 0 / 0.1) !important;
-			}
-			.ec-event:hover {
-				transform: translateY(-1px) !important;
-				box-shadow: 0 4px 12px rgb(0 0 0 / 0.15) !important;
-			}
-			.ec-view {
-				background: hsl(var(--b1)) !important;
-				border-radius: 0.75rem !important;
-				overflow: hidden !important;
-			}
-		`;
-		document.head.appendChild(style);
-	});
+
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = 'adventures.ics';
+			link.click();
+			URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error(error);
+		} finally {
+			isDownloadingIcs = false;
+		}
+	}
 </script>
 
 <svelte:head>
@@ -264,7 +226,7 @@
 				<!-- Calendar -->
 				<div class="card bg-base-100 shadow-2xl border border-base-300/50">
 					<div class="card-body p-0">
-						<Calendar {plugins} {options} />
+						<CalendarComponent events={filteredDates} onEventClick={handleEventClick} />
 					</div>
 				</div>
 			</div>
@@ -321,14 +283,19 @@
 
 					<!-- Quick Actions -->
 					<div class="space-y-3">
-						<a
-							href={icsCalendarDataUrl}
-							download="adventures.ics"
+						<button
+							type="button"
 							class="btn btn-primary w-full gap-2"
+							on:click={downloadIcs}
+							disabled={isDownloadingIcs}
 						>
-							<DownloadIcon class="w-4 h-4" />
+							{#if isDownloadingIcs}
+								<span class="loading loading-spinner loading-sm"></span>
+							{:else}
+								<DownloadIcon class="w-4 h-4" />
+							{/if}
 							{$t('adventures.download_calendar')}
-						</a>
+						</button>
 
 						<button class="btn btn-ghost w-full gap-2" on:click={clearFilters}>
 							<ClearIcon class="w-4 h-4" />
@@ -342,96 +309,12 @@
 </div>
 
 <!-- Event Details Modal -->
-{#if showEventModal && selectedEvent}
-	<!-- svelte-ignore a11y-click-events-have-key-events -->
-	<div class="modal modal-open">
-		<div class="modal-box max-w-2xl bg-base-100 border border-base-300/50 shadow-2xl">
-			<div class="flex items-start justify-between mb-6">
-				<div class="flex items-center gap-4">
-					<div class="p-3 bg-primary/10 rounded-xl">
-						<span class="text-2xl">{selectedEvent.extendedProps.icon}</span>
-					</div>
-					<div>
-						<h3 class="text-2xl font-bold">{selectedEvent.extendedProps.adventureName}</h3>
-						<div class="badge badge-primary badge-lg mt-2">
-							{selectedEvent.extendedProps.category}
-						</div>
-					</div>
-				</div>
-				<button class="btn btn-ghost btn-sm btn-circle" on:click={closeModal}>
-					<CloseIcon class="w-5 h-5" />
-				</button>
-			</div>
-
-			<div class="space-y-4">
-				<!-- Date & Time -->
-				<div class="card bg-base-200/50 border border-base-300/30">
-					<div class="card-body p-4">
-						<div class="flex items-center gap-3">
-							<ClockIcon class="w-6 h-6 text-primary flex-shrink-0" />
-							<div>
-								<div class="font-semibold text-lg">
-									{#if selectedEvent.extendedProps.isAllDay}
-										{$t('calendar.all_day_event')}
-									{:else}
-										{selectedEvent.extendedProps.formattedStart}
-										{#if selectedEvent.extendedProps.formattedEnd !== selectedEvent.extendedProps.formattedStart}
-											→ {selectedEvent.extendedProps.formattedEnd}
-										{/if}
-									{/if}
-								</div>
-								{#if !selectedEvent.extendedProps.isAllDay && selectedEvent.extendedProps.timezone}
-									<div class="text-sm text-base-content/70 mt-1">
-										{selectedEvent.extendedProps.timezone}
-									</div>
-								{/if}
-							</div>
-						</div>
-					</div>
-				</div>
-
-				<!-- Location -->
-				{#if selectedEvent.extendedProps.location}
-					<div class="card bg-base-200/50 border border-base-300/30">
-						<div class="card-body p-4">
-							<div class="flex items-center gap-3">
-								<MapMarkerIcon class="w-6 h-6 text-primary flex-shrink-0" />
-								<div class="font-semibold text-lg">{selectedEvent.extendedProps.location}</div>
-							</div>
-						</div>
-					</div>
-				{/if}
-
-				<!-- Description -->
-				{#if selectedEvent.extendedProps.description}
-					<div class="card bg-base-200/50 border border-base-300/30">
-						<div class="card-body p-4">
-							<div class="font-semibold text-lg mb-3">{$t('adventures.description')}</div>
-							<article
-								class="prose overflow-auto h-full max-w-full p-4 border border-base-300 rounded-lg mb-4 mt-4"
-							>
-								{@html renderMarkdown(selectedEvent.extendedProps.description || '')}
-							</article>
-						</div>
-					</div>
-				{/if}
-
-				{#if selectedEvent.extendedProps.adventureId}
-					<a
-						href={`/locations/${selectedEvent.extendedProps.adventureId}`}
-						class="btn btn-neutral btn-block mt-4"
-					>
-						{$t('map.view_details')}
-					</a>
-				{/if}
-			</div>
-
-			<div class="modal-action mt-8">
-				<button class="btn btn-primary btn-lg" on:click={closeModal}> {$t('about.close')} </button>
-			</div>
-		</div>
-		<!-- svelte-ignore a11y-click-events-have-key-events -->
-		<!-- svelte-ignore a11y-no-static-element-interactions -->
-		<div class="modal-backdrop" on:click={closeModal}></div>
-	</div>
-{/if}
+<EventDetailsModal
+	show={showEventModal}
+	event={selectedEvent}
+	{isLoadingDetails}
+	{detailsError}
+	location={currentLocation}
+	description={descriptionToShow}
+	onClose={closeModal}
+/>

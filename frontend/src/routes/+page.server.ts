@@ -78,7 +78,7 @@ export const actions: Actions = {
 		});
 
 		if (res.status === 401) {
-			return redirect(302, '/login');
+			return redirect(302, '/');
 		} else {
 			return redirect(302, '/');
 		}

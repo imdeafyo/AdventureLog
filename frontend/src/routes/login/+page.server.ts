@@ -20,6 +20,29 @@ export const load: PageServerLoad = async (event) => {
 		}
 		let socialProviders = await socialProviderFetch.json();
 
+		// Determine if social auth usage is required. The API returns `usage_required`
+		// either for all providers or none — so check the first provider if present.
+		const usageRequired =
+			socialProviders && socialProviders.length > 0 ? !!socialProviders[0].usage_required : false;
+
+		// If usage is required and there's exactly one social provider, redirect straight
+		// to that provider's URL. If multiple providers and usage is required, instruct
+		// the client to render social-only UI.
+		if (usageRequired) {
+			if (socialProviders.length === 1) {
+				return redirect(302, socialProviders[0].url);
+			} else if (socialProviders.length > 1) {
+				return {
+					props: {
+						quote,
+						background,
+						socialProviders,
+						socialOnly: true
+					}
+				};
+			}
+		}
+
 		return {
 			props: {
 				quote,

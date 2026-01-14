@@ -1,22 +1,45 @@
-import type { Location } from '$lib/types';
 import type { PageServerLoad } from './$types';
 import { formatDateInTimezone, formatAllDayDate } from '$lib/dateUtils';
 import { isAllDay } from '$lib';
+import { redirect } from '@sveltejs/kit';
 
 const PUBLIC_SERVER_URL = process.env['PUBLIC_SERVER_URL'];
 const endpoint = PUBLIC_SERVER_URL || 'http://localhost:8000';
 
+type CalendarLocation = {
+	id: string;
+	name: string;
+	location?: string | null;
+	category?: {
+		name?: string | null;
+		icon?: string | null;
+	} | null;
+	visits: Array<{
+		id: string;
+		start_date: string;
+		end_date?: string | null;
+		timezone?: string | null;
+	}>;
+};
+
 export const load = (async (event) => {
 	let sessionId = event.cookies.get('sessionid');
-	let visitedFetch = await fetch(
-		`${endpoint}/api/locations/all?include_collections=true&nested=true&allowed_nested_fields=visits`,
-		{
-			headers: {
-				Cookie: `sessionid=${sessionId}`
-			}
-		}
-	);
-	let adventures = (await visitedFetch.json()) as Location[];
+	const headers: Record<string, string> = {};
+
+	if (sessionId) {
+		headers.Cookie = `sessionid=${sessionId}`;
+	} else {
+		return redirect(302, '/login');
+	}
+
+	let visitedFetch = await fetch(`${endpoint}/api/locations/calendar/`, {
+		headers
+	});
+
+	let adventures: CalendarLocation[] = [];
+	if (visitedFetch.ok) {
+		adventures = (await visitedFetch.json()) as CalendarLocation[];
+	}
 
 	// Get user's local timezone as fallback
 	const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -123,7 +146,7 @@ export const load = (async (event) => {
 							? formatAllDayDate(visit.end_date || visit.start_date)
 							: formatDateInTimezone(visit.end_date || visit.start_date, targetTimezone),
 						location: adventure.location || '',
-						description: adventure.description || '',
+						description: '',
 						adventureId: adventure.id
 					}
 				});
@@ -131,18 +154,10 @@ export const load = (async (event) => {
 		});
 	});
 
-	let icsFetch = await fetch(`${endpoint}/api/ics-calendar/generate`, {
-		headers: {
-			Cookie: `sessionid=${sessionId}`
-		}
-	});
-	let ics_calendar = await icsFetch.text();
-
 	return {
 		props: {
 			adventures,
-			dates,
-			ics_calendar
+			dates
 		}
 	};
 }) satisfies PageServerLoad;

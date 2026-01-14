@@ -1,5 +1,5 @@
 import os
-from .models import Location, ContentImage, ChecklistItem, Collection, Note, Transportation, Checklist, Visit, Category, ContentAttachment, Lodging, CollectionInvite, Trail, Activity
+from .models import Location, ContentImage, ChecklistItem, Collection, Note, Transportation, Checklist, Visit, Category, ContentAttachment, Lodging, CollectionInvite, Trail, Activity, CollectionItineraryItem, CollectionItineraryDay
 from rest_framework import serializers
 from main.utils import CustomModelSerializer
 from users.serializers import CustomUserDetailsSerializer
@@ -7,9 +7,36 @@ from worldtravel.serializers import CountrySerializer, RegionSerializer, CitySer
 from geopy.distance import geodesic
 from integrations.models import ImmichIntegration
 from adventures.utils.geojson import gpx_to_geojson
+import gpxpy
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _build_profile_pic_url(user):
+    """Return absolute-ish profile pic URL using PUBLIC_URL if available."""
+    if not getattr(user, 'profile_pic', None):
+        return None
+
+    public_url = os.environ.get('PUBLIC_URL', 'http://127.0.0.1:8000').rstrip('/')
+    public_url = public_url.replace("'", "")
+    return f"{public_url}/media/{user.profile_pic.name}"
+
+
+def _serialize_collaborator(user, owner_id=None, request_user=None):
+    if not user:
+        return None
+
+    return {
+        'uuid': str(user.uuid),
+        'username': user.username,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'profile_pic': _build_profile_pic_url(user),
+        'public_profile': bool(getattr(user, 'public_profile', False)),
+        'is_owner': owner_id == user.id,
+        'is_current_user': bool(request_user and request_user.id == user.id),
+    }
 
 
 class ContentImageSerializer(CustomModelSerializer):
@@ -205,6 +232,31 @@ class VisitSerializer(serializers.ModelSerializer):
         if not validated_data.get('end_date') and validated_data.get('start_date'):
             validated_data['end_date'] = validated_data['start_date']
         return super().create(validated_data)
+
+
+class CalendarVisitSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Visit
+        fields = ['id', 'start_date', 'end_date', 'timezone']
+
+
+class CalendarLocationSerializer(serializers.ModelSerializer):
+    visits = CalendarVisitSerializer(many=True, read_only=True)
+    category = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Location
+        fields = ['id', 'name', 'location', 'category', 'visits']
+
+    def get_category(self, obj):
+        if not obj.category:
+            return None
+
+        return {
+            "name": obj.category.name,
+            "icon": obj.category.icon,
+        }
+
                                    
 class LocationSerializer(CustomModelSerializer):
     images = serializers.SerializerMethodField()
@@ -227,7 +279,8 @@ class LocationSerializer(CustomModelSerializer):
         fields = [
             'id', 'name', 'description', 'rating', 'tags', 'location', 
             'is_public', 'collections', 'created_at', 'updated_at', 'images', 'link', 'longitude', 
-            'latitude', 'visits', 'is_visited', 'category', 'attachments', 'user', 'city', 'country', 'region', 'trails'
+            'latitude', 'visits', 'is_visited', 'category', 'attachments', 'user', 'city', 'country', 'region', 'trails',
+            'price', 'price_currency'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'is_visited']
 
@@ -424,17 +477,19 @@ class TransportationSerializer(CustomModelSerializer):
     distance = serializers.SerializerMethodField()
     images = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
+    travel_duration_minutes = serializers.SerializerMethodField()
 
     class Meta:
         model = Transportation
         fields = [
-            'id', 'user', 'type', 'name', 'description', 'rating', 
+            'id', 'user', 'type', 'name', 'description', 'rating', 'price', 'price_currency',
             'link', 'date', 'flight_number', 'from_location', 'to_location', 
             'is_public', 'collection', 'created_at', 'updated_at', 'end_date',
             'origin_latitude', 'origin_longitude', 'destination_latitude', 'destination_longitude',
-            'start_timezone', 'end_timezone', 'distance', 'images', 'attachments'
+            'start_timezone', 'end_timezone', 'distance', 'images', 'attachments', 'start_code', 'end_code',
+            'travel_duration_minutes'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'distance']
+        read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'distance', 'travel_duration_minutes']
 
     def get_images(self, obj):
         serializer = ContentImageSerializer(obj.images.all(), many=True, context=self.context)
@@ -447,6 +502,10 @@ class TransportationSerializer(CustomModelSerializer):
         return [attachment for attachment in serializer.data if attachment is not None]
 
     def get_distance(self, obj):
+        gpx_distance = self._get_gpx_distance_km(obj)
+        if gpx_distance is not None:
+            return gpx_distance
+
         if (
             obj.origin_latitude and obj.origin_longitude and
             obj.destination_latitude and obj.destination_longitude
@@ -459,6 +518,68 @@ class TransportationSerializer(CustomModelSerializer):
                 return None
         return None
 
+    def _get_gpx_distance_km(self, obj):
+        gpx_attachments = obj.attachments.filter(file__iendswith='.gpx')
+        for attachment in gpx_attachments:
+            distance_km = self._parse_gpx_distance_km(attachment.file)
+            if distance_km is not None:
+                return distance_km
+        return None
+
+    def _parse_gpx_distance_km(self, gpx_file_field):
+        try:
+            with gpx_file_field.open('r') as gpx_file:
+                gpx = gpxpy.parse(gpx_file)
+
+            total_meters = 0.0
+
+            for track in gpx.tracks:
+                for segment in track.segments:
+                    segment_length = segment.length_3d() or segment.length_2d()
+                    if segment_length:
+                        total_meters += segment_length
+
+            for route in gpx.routes:
+                route_length = route.length_3d() or route.length_2d()
+                if route_length:
+                    total_meters += route_length
+
+            if total_meters > 0:
+                return round(total_meters / 1000, 2)
+        except Exception as exc:
+            logger.warning(
+                "Failed to calculate GPX distance for file %s: %s",
+                getattr(gpx_file_field, 'name', 'unknown'),
+                exc,
+            )
+        return None
+
+    def get_travel_duration_minutes(self, obj):
+        if not obj.date or not obj.end_date:
+            return None
+
+        if self._is_all_day(obj.date) and self._is_all_day(obj.end_date):
+            return None
+
+        try:
+            total_minutes = int((obj.end_date - obj.date).total_seconds() // 60)
+            return total_minutes if total_minutes >= 0 else None
+        except Exception:
+            logger.warning(
+                "Failed to calculate travel duration for transportation %s",
+                getattr(obj, "id", "unknown"),
+                exc_info=True,
+            )
+            return None
+
+    def _is_all_day(self, dt_value):
+        return (
+            dt_value.time().hour == 0
+            and dt_value.time().minute == 0
+            and dt_value.time().second == 0
+            and dt_value.time().microsecond == 0
+        )
+
 class LodgingSerializer(CustomModelSerializer):
     images = serializers.SerializerMethodField()
     attachments = serializers.SerializerMethodField()
@@ -467,7 +588,7 @@ class LodgingSerializer(CustomModelSerializer):
         model = Lodging
         fields = [
             'id', 'user', 'name', 'description', 'rating', 'link', 'check_in', 'check_out', 
-            'reservation_number', 'price', 'latitude', 'longitude', 'location', 'is_public',
+            'reservation_number', 'price', 'price_currency', 'latitude', 'longitude', 'location', 'is_public',
             'collection', 'created_at', 'updated_at', 'type', 'timezone', 'images', 'attachments'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at', 'user']
@@ -583,16 +704,74 @@ class ChecklistSerializer(CustomModelSerializer):
         return data
 
 class CollectionSerializer(CustomModelSerializer):
+    collaborators = serializers.SerializerMethodField()
     locations = serializers.SerializerMethodField()
     transportations = serializers.SerializerMethodField()
     notes = serializers.SerializerMethodField()
     checklists = serializers.SerializerMethodField()
     lodging = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    days_until_start = serializers.SerializerMethodField()
+    primary_image = ContentImageSerializer(read_only=True)
+    primary_image_id = serializers.PrimaryKeyRelatedField(
+        queryset=ContentImage.objects.all(),
+        source='primary_image',
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = Collection
-        fields = ['id', 'description', 'user', 'name', 'is_public', 'locations', 'created_at', 'start_date', 'end_date', 'transportations', 'notes', 'updated_at', 'checklists', 'is_archived', 'shared_with', 'link', 'lodging']
-        read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'shared_with']
+        fields = [
+            'id',
+            'description',
+            'user',
+            'name',
+            'is_public',
+            'locations',
+            'created_at',
+            'start_date',
+            'end_date',
+            'transportations',
+            'notes',
+            'updated_at',
+            'checklists',
+            'is_archived',
+            'shared_with',
+            'collaborators',
+            'link',
+            'lodging',
+            'status',
+            'days_until_start',
+            'primary_image',
+            'primary_image_id',
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'user', 'shared_with', 'status', 'days_until_start', 'primary_image']
+
+    def get_collaborators(self, obj):
+        request = self.context.get('request')
+        request_user = getattr(request, 'user', None) if request else None
+
+        users = []
+        if obj.user:
+            users.append(obj.user)
+        users.extend(list(obj.shared_with.all()))
+
+        collaborators = []
+        seen = set()
+        for user in users:
+            if not user:
+                continue
+            key = str(user.uuid)
+            if key in seen:
+                continue
+            seen.add(key)
+            serialized = _serialize_collaborator(user, owner_id=obj.user_id, request_user=request_user)
+            if serialized:
+                collaborators.append(serialized)
+
+        return collaborators
 
     def get_locations(self, obj):
         if self.context.get('nested', False):
@@ -629,6 +808,72 @@ class CollectionSerializer(CustomModelSerializer):
             return []
         return LodgingSerializer(obj.lodging_set.all(), many=True, context=self.context).data
 
+    def get_status(self, obj):
+        """Calculate the status of the collection based on dates"""
+        from datetime import date
+        
+        # If no dates, it's a folder
+        if not obj.start_date or not obj.end_date:
+            return 'folder'
+        
+        today = date.today()
+        
+        # Future trip
+        if obj.start_date > today:
+            return 'upcoming'
+        
+        # Past trip
+        if obj.end_date < today:
+            return 'completed'
+        
+        # Current trip
+        return 'in_progress'
+    
+    def get_days_until_start(self, obj):
+        """Calculate days until start for upcoming collections"""
+        from datetime import date
+        
+        if not obj.start_date:
+            return None
+        
+        today = date.today()
+        
+        if obj.start_date > today:
+            return (obj.start_date - today).days
+        
+        return None
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+
+        # Only validate primary image when explicitly provided
+        if 'primary_image' not in data:
+            return data
+
+        primary_image = data.get('primary_image')
+        if primary_image is None:
+            return data
+
+        request = self.context.get('request')
+        if request and primary_image.user != request.user:
+            raise serializers.ValidationError({
+                'primary_image_id': 'You can only choose cover images you own.'
+            })
+
+        if self.instance and not self._image_belongs_to_collection(primary_image, self.instance):
+            raise serializers.ValidationError({
+                'primary_image_id': 'Cover image must come from a location in this collection.'
+            })
+
+        return data
+
+    def _image_belongs_to_collection(self, image, collection):
+        if ContentImage.objects.filter(id=image.id, location__collections=collection).exists():
+            return True
+        if ContentImage.objects.filter(id=image.id, visit__location__collections=collection).exists():
+            return True
+        return False
+
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         
@@ -660,33 +905,108 @@ class CollectionInviteSerializer(serializers.ModelSerializer):
 class UltraSlimCollectionSerializer(serializers.ModelSerializer):
     location_images = serializers.SerializerMethodField()
     location_count = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+    days_until_start = serializers.SerializerMethodField()
+    primary_image = ContentImageSerializer(read_only=True)
+    collaborators = serializers.SerializerMethodField()
     
     class Meta:
         model = Collection
         fields = [
             'id', 'user', 'name', 'description', 'is_public', 'start_date', 'end_date', 
             'is_archived', 'link', 'created_at', 'updated_at', 'location_images', 
-            'location_count', 'shared_with'
+            'location_count', 'shared_with', 'collaborators', 'status', 'days_until_start', 'primary_image'
         ]
         read_only_fields = fields  # All fields are read-only for listing
+
+    def get_collaborators(self, obj):
+        request = self.context.get('request')
+        request_user = getattr(request, 'user', None) if request else None
+
+        users = []
+        if obj.user:
+            users.append(obj.user)
+        users.extend(list(obj.shared_with.all()))
+
+        collaborators = []
+        seen = set()
+        for user in users:
+            if not user:
+                continue
+            key = str(user.uuid)
+            if key in seen:
+                continue
+            seen.add(key)
+            serialized = _serialize_collaborator(user, owner_id=obj.user_id, request_user=request_user)
+            if serialized:
+                collaborators.append(serialized)
+
+        return collaborators
 
     def get_location_images(self, obj):
         """Get primary images from locations in this collection, optimized with select_related"""
         # Filter first, then slice (removed slicing)
-        images = ContentImage.objects.filter(
-            location__collections=obj
-        ).select_related('user').prefetch_related('location')
+        images = list(
+            ContentImage.objects.filter(location__collections=obj)
+            .select_related('user')
+        )
 
-        return ContentImageSerializer(
+        def sort_key(image):
+            if obj.primary_image and image.id == obj.primary_image.id:
+                return (0, str(image.id))
+            if image.is_primary:
+                return (1, str(image.id))
+            return (2, str(image.id))
+
+        images.sort(key=sort_key)
+
+        serializer = ContentImageSerializer(
             images,
             many=True,
             context={'request': self.context.get('request')}
-        ).data
+        )
+        # Filter out None values from the serialized data
+        return [image for image in serializer.data if image is not None]
 
     def get_location_count(self, obj):
         """Get count of locations in this collection"""
         # This uses the cached count if available, or does a simple count query
         return obj.locations.count()
+
+    def get_status(self, obj):
+        """Calculate the status of the collection based on dates"""
+        from datetime import date
+        
+        # If no dates, it's a folder
+        if not obj.start_date or not obj.end_date:
+            return 'folder'
+        
+        today = date.today()
+        
+        # Future trip
+        if obj.start_date > today:
+            return 'upcoming'
+        
+        # Past trip
+        if obj.end_date < today:
+            return 'completed'
+        
+        # Current trip
+        return 'in_progress'
+    
+    def get_days_until_start(self, obj):
+        """Calculate days until start for upcoming collections"""
+        from datetime import date
+        
+        if not obj.start_date:
+            return None
+        
+        today = date.today()
+        
+        if obj.start_date > today:
+            return (obj.start_date - today).days
+        
+        return None
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
@@ -701,3 +1021,46 @@ class UltraSlimCollectionSerializer(serializers.ModelSerializer):
         representation['shared_with'] = shared_uuids
         return representation
     
+class CollectionItineraryDaySerializer(CustomModelSerializer):
+    class Meta:
+        model = CollectionItineraryDay
+        fields = ['id', 'collection', 'date', 'name', 'description', 'created_at', 'updated_at']
+        read_only_fields = ['id', 'created_at', 'updated_at']
+    
+    def update(self, instance, validated_data):
+        # Security: Prevent changing collection or date after creation
+        # This prevents shared users from reassigning itinerary days to themselves
+        validated_data.pop('collection', None)
+        validated_data.pop('date', None)
+        return super().update(instance, validated_data)
+
+class CollectionItineraryItemSerializer(CustomModelSerializer):
+    item = serializers.SerializerMethodField()
+    start_datetime = serializers.ReadOnlyField()
+    end_datetime = serializers.ReadOnlyField()
+    object_name = serializers.ReadOnlyField(source='content_type.model')
+    
+    class Meta:
+        model = CollectionItineraryItem
+        fields = ['id', 'collection', 'content_type', 'object_id', 'item', 'date', 'is_global', 'order', 'start_datetime', 'end_datetime', 'created_at', 'object_name']
+        read_only_fields = ['id', 'created_at', 'start_datetime', 'end_datetime', 'item', 'object_name']
+    
+    def update(self, instance, validated_data):
+        # Security: Prevent changing collection, content_type, or object_id after creation
+        # This prevents shared users from reassigning itinerary items to themselves
+        # or linking items to objects they don't have permission to access
+        validated_data.pop('collection', None)
+        validated_data.pop('content_type', None)
+        validated_data.pop('object_id', None)
+        return super().update(instance, validated_data)
+    
+    def get_item(self, obj):
+        """Return id and type for the linked item"""
+        if not obj.item:
+            return None
+            
+        return {
+            'id': str(obj.item.id),
+            'type': obj.content_type.model,
+        }
+        

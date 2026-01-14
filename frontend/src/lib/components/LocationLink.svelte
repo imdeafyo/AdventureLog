@@ -1,10 +1,10 @@
 <script lang="ts">
-	import type { Location, User } from '$lib/types';
+	import type { Location, User, Pin } from '$lib/types';
 	import { createEventDispatcher } from 'svelte';
 	const dispatch = createEventDispatcher();
 	import { t } from 'svelte-i18n';
 	import { onMount } from 'svelte';
-	import LocationCard from './LocationCard.svelte';
+	import LocationCard from './cards/LocationCard.svelte';
 	let modal: HTMLDialogElement;
 
 	// Icons - following the worldtravel pattern
@@ -16,9 +16,15 @@
 	import Cancel from '~icons/mdi/cancel';
 	import Public from '~icons/mdi/earth';
 	import Private from '~icons/mdi/lock';
+	import Loading from '~icons/mdi/loading';
 
-	let adventures: Location[] = [];
-	let filteredAdventures: Location[] = [];
+	let pins: Pin[] = [];
+	let locationCache: Map<string, Location> = new Map();
+	let loadingLocationIds: Set<string> = new Set();
+	let locationRequests: Map<string, Promise<Location | null>> = new Map();
+
+	let filteredPins: Pin[] = [];
+	let filteredLocations: Map<string, Location | null> = new Map();
 	let searchQuery: string = '';
 	let filterOption: string = 'all';
 	let isLoading: boolean = true;
@@ -26,42 +32,124 @@
 	export let user: User | null;
 	export let collectionId: string;
 
-	// Search and filter functionality following worldtravel pattern
+	// Search and filter functionality - works with pins and cached locations
 	$: {
-		let filtered = adventures;
+		let filtered = pins;
 
-		// Apply search filter - include name and location
+		// Apply search filter - include name and location (using pin data + cached location data)
 		if (searchQuery !== '') {
-			filtered = filtered.filter((adventure) => {
-				const nameMatch = adventure.name.toLowerCase().includes(searchQuery.toLowerCase());
+			filtered = filtered.filter((pin) => {
+				const nameMatch = pin.name.toLowerCase().includes(searchQuery.toLowerCase());
+				const cachedLocation = locationCache.get(pin.id);
 				const locationMatch =
-					adventure.location?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
+					cachedLocation?.location?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
 				const descriptionMatch =
-					adventure.description?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
+					cachedLocation?.description?.toLowerCase().includes(searchQuery.toLowerCase()) || false;
 				return nameMatch || locationMatch || descriptionMatch;
 			});
 		}
 
-		// Apply status filter
+		// Apply status filter (using pin data + cached location data)
 		if (filterOption === 'public') {
-			filtered = filtered.filter((adventure) => adventure.is_public);
+			filtered = filtered.filter((pin) => {
+				const cachedLocation = locationCache.get(pin.id);
+				return cachedLocation?.is_public ?? false;
+			});
 		} else if (filterOption === 'private') {
-			filtered = filtered.filter((adventure) => !adventure.is_public);
+			filtered = filtered.filter((pin) => {
+				const cachedLocation = locationCache.get(pin.id);
+				return !(cachedLocation?.is_public ?? true);
+			});
 		} else if (filterOption === 'visited') {
-			filtered = filtered.filter((adventure) => adventure.visits && adventure.visits.length > 0);
+			filtered = filtered.filter((pin) => pin.is_visited === true);
 		} else if (filterOption === 'not_visited') {
-			filtered = filtered.filter((adventure) => !adventure.visits || adventure.visits.length === 0);
+			filtered = filtered.filter((pin) => pin.is_visited !== true);
 		}
 
-		filteredAdventures = filtered;
+		filteredPins = filtered;
 	}
 
 	// Statistics following worldtravel pattern
-	$: totalAdventures = adventures.length;
-	$: publicAdventures = adventures.filter((a) => a.is_public).length;
-	$: privateAdventures = adventures.filter((a) => !a.is_public).length;
-	$: visitedAdventures = adventures.filter((a) => a.visits && a.visits.length > 0).length;
-	$: notVisitedAdventures = adventures.filter((a) => !a.visits || a.visits.length === 0).length;
+	$: totalAdventures = pins.length;
+	$: visitedAdventures = pins.filter((p) => p.is_visited === true).length;
+	$: plannedAdventures = pins.filter((p) => p.is_visited !== true).length;
+
+	// Fetch location details lazily (like the map page)
+	async function fetchLocationDetails(locationId: string): Promise<Location | null> {
+		// Check cache first
+		if (locationCache.has(locationId)) {
+			return locationCache.get(locationId)!;
+		}
+
+		// Reuse in-flight requests
+		const existing = locationRequests.get(locationId);
+		if (existing) return existing;
+
+		const request = (async () => {
+			try {
+				loadingLocationIds.add(locationId);
+				const res = await fetch(`/api/locations/${locationId}/?include_collections=true`);
+				if (!res.ok) {
+					console.error(`Failed to fetch location ${locationId}`);
+					return null;
+				}
+				const location = (await res.json()) as Location;
+				locationCache.set(locationId, location);
+				// Trigger reactivity
+				locationCache = locationCache;
+				return location;
+			} catch (error) {
+				console.error('Error fetching location details:', error);
+				return null;
+			} finally {
+				loadingLocationIds.delete(locationId);
+				locationRequests.delete(locationId);
+			}
+		})();
+
+		locationRequests.set(locationId, request);
+		loadingLocationIds.add(locationId);
+		return request;
+	}
+
+	// Intersection Observer for lazy loading
+	let observer: IntersectionObserver | null = null;
+
+	function setupLazyLoading(element: HTMLElement) {
+		observer = new IntersectionObserver(
+			(entries) => {
+				entries.forEach((entry) => {
+					if (entry.isIntersecting) {
+						const pinId = entry.target.getAttribute('data-pin-id');
+						if (pinId && !locationCache.has(pinId) && !loadingLocationIds.has(pinId)) {
+							console.log('Lazy loading location:', pinId);
+							fetchLocationDetails(pinId);
+						}
+					}
+				});
+			},
+			{ rootMargin: '200px' } // Start loading 200px before it comes into view
+		);
+
+		return {
+			destroy: () => {
+				if (observer) {
+					observer.disconnect();
+				}
+			}
+		};
+	}
+
+	// Re-observe elements when pins change
+	$: if (observer && filteredPins.length > 0) {
+		// Disconnect and reconnect to observe all pin cards
+		observer.disconnect();
+		setTimeout(() => {
+			const pinCards = document.querySelectorAll('[data-pin-id]');
+			console.log('Observing pin cards:', pinCards.length);
+			pinCards.forEach((el) => observer?.observe(el));
+		}, 0);
+	}
 
 	onMount(async () => {
 		modal = document.getElementById('my_modal_1') as HTMLDialogElement;
@@ -69,22 +157,35 @@
 			modal.showModal();
 		}
 
-		let res = await fetch(`/api/locations/all/?include_collections=true`, {
-			method: 'GET'
-		});
-
-		const newAdventures = await res.json();
-
-		// Filter out adventures that are already linked to the collections
-		if (collectionId) {
-			adventures = newAdventures.filter((adventure: Location) => {
-				return !(adventure.collections ?? []).includes(collectionId);
+		try {
+			// Fetch minimal pin data first
+			const res = await fetch(`/api/locations/pins/`, {
+				method: 'GET'
 			});
-		} else {
-			adventures = newAdventures;
-		}
 
-		isLoading = false;
+			if (!res.ok) {
+				console.error('Failed to fetch pins:', res.status, res.statusText);
+				isLoading = false;
+				return;
+			}
+
+			const newPins = (await res.json()) as Pin[];
+			console.log('Fetched pins:', newPins);
+
+			// Filter out pins that are already linked to the collection
+			if (collectionId) {
+				// For now, show all pins - we'll check collections when fetching full data
+				pins = newPins;
+			} else {
+				pins = newPins;
+			}
+
+			console.log('Set pins to:', pins);
+			isLoading = false;
+		} catch (error) {
+			console.error('Error fetching pins:', error);
+			isLoading = false;
+		}
 	});
 
 	function close() {
@@ -92,7 +193,7 @@
 	}
 
 	function add(event: CustomEvent<Location>) {
-		adventures = adventures.filter((a) => a.id !== event.detail.id);
+		pins = pins.filter((p) => p.id !== event.detail.id);
 		dispatch('add', event.detail);
 	}
 
@@ -128,10 +229,10 @@
 					</div>
 					<div>
 						<h1 class="text-3xl font-bold text-primary bg-clip-text">
-							{$t('adventures.my_adventures')}
+							{$t('adventures.my_locations')}
 						</h1>
 						<p class="text-sm text-base-content/60">
-							{filteredAdventures.length}
+							{filteredPins.length}
 							{$t('worldtravel.of')}
 							{totalAdventures}
 							{$t('locations.locations')}
@@ -238,14 +339,14 @@
 				<div class="p-6 bg-base-200/50 rounded-2xl mb-6">
 					<span class="loading loading-spinner w-16 h-16 text-primary"></span>
 				</div>
-				<h3 class="text-xl font-semibold text-base-content/70 mb-2">
-					{$t('adventures.loading_adventures')}
-				</h3>
+				<!-- <h3 class="text-xl font-semibold text-base-content/70 mb-2">
+					{$t('immich.loading')}
+				</h3> -->
 			</div>
 		{:else}
 			<!-- Main Content -->
-			<div class="px-2">
-				{#if filteredAdventures.length === 0}
+			<div class="px-2" use:setupLazyLoading>
+				{#if filteredPins.length === 0}
 					<div class="flex flex-col items-center justify-center py-16">
 						<div class="p-6 bg-base-200/50 rounded-2xl mb-6">
 							<Adventures class="w-16 h-16 text-base-content/30" />
@@ -263,18 +364,35 @@
 							</button>
 						{:else}
 							<h3 class="text-xl font-semibold text-base-content/70 mb-2">
-								{$t('adventures.no_linkable_adventures')}
+								{$t('adventures.no_linkable_locations')}
 							</h3>
 							<p class="text-base-content/50 text-center max-w-md">
-								{$t('adventures.all_adventures_already_linked')}
+								{$t('adventures.all_locations_already_linked')}
 							</p>
 						{/if}
 					</div>
 				{:else}
-					<!-- Adventures Grid -->
+					<!-- Locations Grid with Lazy Loading -->
 					<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-6 p-4">
-						{#each filteredAdventures as adventure}
-							<LocationCard {user} type="link" {adventure} on:link={add} />
+						{#each filteredPins as pin (pin.id)}
+							<div data-pin-id={pin.id} class="h-full">
+								{#if locationCache.has(pin.id)}
+									{@const location = locationCache.get(pin.id)}
+									{#if location}
+										<LocationCard {user} type="link" adventure={location} on:link={add} />
+									{/if}
+								{:else}
+									<!-- Skeleton Loading Card -->
+									<div class="card w-full bg-base-300 shadow animate-pulse">
+										<div class="h-48 bg-base-200"></div>
+										<div class="card-body gap-3">
+											<div class="h-6 bg-base-200 rounded w-3/4"></div>
+											<div class="h-4 bg-base-200 rounded w-full"></div>
+											<div class="h-4 bg-base-200 rounded w-2/3"></div>
+										</div>
+									</div>
+								{/if}
+							</div>
 						{/each}
 					</div>
 				{/if}
@@ -287,8 +405,8 @@
 		>
 			<div class="flex items-center justify-between">
 				<div class="text-sm text-base-content/60">
-					{filteredAdventures.length}
-					{$t('adventures.adventures_available')}
+					{filteredPins.length}
+					{$t('locations.locations')}
 				</div>
 				<button class="btn btn-primary gap-2" on:click={close}>
 					<Link class="w-4 h-4" />

@@ -1,4 +1,3 @@
-from django.core.exceptions import ValidationError
 import os
 import uuid
 from django.db import models
@@ -7,8 +6,8 @@ from adventures.managers import LocationManager
 import threading
 from django.contrib.auth import get_user_model
 from django.contrib.postgres.fields import ArrayField
-from django.forms import ValidationError
 from django_resized import ResizedImageField
+from djmoney.models.fields import MoneyField
 from worldtravel.models import City, Country, Region, VisitedCity, VisitedRegion
 from django.core.exceptions import ValidationError
 from django.utils import timezone
@@ -16,6 +15,7 @@ from adventures.utils.timezones import TIMEZONES
 from adventures.utils.sports_types import SPORT_TYPE_CHOICES
 from adventures.utils.get_is_visited import is_location_visited
 from django.contrib.contenttypes.fields import GenericForeignKey
+from django.db.models import Q
 from django.contrib.contenttypes.models import ContentType
 from django.contrib.contenttypes.fields import GenericRelation
 
@@ -159,6 +159,7 @@ class Location(models.Model):
     tags = ArrayField(models.CharField(max_length=100), blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     rating = models.FloatField(blank=True, null=True)
+    price = MoneyField(max_digits=12, decimal_places=2, default_currency='USD', null=True, blank=True)
     link = models.URLField(blank=True, null=True, max_length=2083)
     is_public = models.BooleanField(default=False)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
@@ -286,6 +287,13 @@ class Collection(models.Model):
     is_archived = models.BooleanField(default=False)
     shared_with = models.ManyToManyField(User, related_name='shared_with', blank=True)
     link = models.URLField(blank=True, null=True, max_length=2083)
+    primary_image = models.ForeignKey(
+        'ContentImage',
+        on_delete=models.SET_NULL,
+        related_name='primary_for_collections',
+        null=True,
+        blank=True,
+    )
 
     # if connected locations are private and collection is public, raise an error
     def clean(self):
@@ -305,6 +313,7 @@ class Transportation(models.Model):
     name = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
     rating = models.FloatField(blank=True, null=True)
+    price = MoneyField(max_digits=12, decimal_places=2, default_currency='USD', null=True, blank=True)
     link = models.URLField(blank=True, null=True, max_length=2083)
     date = models.DateTimeField(blank=True, null=True)
     end_date = models.DateTimeField(blank=True, null=True)
@@ -316,6 +325,8 @@ class Transportation(models.Model):
     origin_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     destination_latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     destination_longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
+    start_code = models.CharField(max_length=100, blank=True, null=True) # Could be airport code, station code, etc.
+    end_code = models.CharField(max_length=100, blank=True, null=True)   # Could be airport code, station code, etc.
     to_location = models.CharField(max_length=200, blank=True, null=True)
     is_public = models.BooleanField(default=False)
     collection = models.ForeignKey('Collection', on_delete=models.CASCADE, blank=True, null=True)
@@ -551,7 +562,7 @@ class Lodging(models.Model):
     check_out = models.DateTimeField(blank=True, null=True)
     timezone = models.CharField(max_length=50, choices=[(tz, tz) for tz in TIMEZONES], null=True, blank=True)
     reservation_number = models.CharField(max_length=100, blank=True, null=True)
-    price = models.DecimalField(max_digits=9, decimal_places=2, blank=True, null=True)
+    price = MoneyField(max_digits=12, decimal_places=2, default_currency='USD', null=True, blank=True)
     latitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     longitude = models.DecimalField(max_digits=9, decimal_places=6, null=True, blank=True)
     location = models.CharField(max_length=200, blank=True, null=True)
@@ -674,3 +685,103 @@ class Activity(models.Model):
     class Meta:
         verbose_name = "Activity"
         verbose_name_plural = "Activities"
+
+class CollectionItineraryDay(models.Model):
+    """Metadata for a specific day in a collection's itinerary"""
+    id = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, primary_key=True)
+    collection = models.ForeignKey('Collection', on_delete=models.CASCADE, related_name='itinerary_days')
+    date = models.DateField()
+    name = models.CharField(max_length=200, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        unique_together = [['collection', 'date']]
+        ordering = ['date']
+        verbose_name = "Collection Itinerary Day"
+        verbose_name_plural = "Collection Itinerary Days"
+    
+    def __str__(self):
+        return f"{
+            self.collection.name} - {self.date} - {self.name or 'Unnamed Day'}"
+
+
+class CollectionItineraryItem(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
+    collection = models.ForeignKey(
+        Collection,
+        on_delete=models.CASCADE,
+        related_name="itinerary_items"
+    )
+
+    # Generic reference to Visit, Transportation, Lodging, Note, etc
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    object_id = models.UUIDField()
+    item = GenericForeignKey("content_type", "object_id")
+
+    # Placement (planning concern, not content concern)
+    # Either a specific date or marked as trip-wide (global). Exactly one of these applies.
+    date = models.DateField(blank=True, null=True)
+    is_global = models.BooleanField(default=False, help_text="Applies to the whole trip (no specific date)")
+    order = models.PositiveIntegerField(help_text="Manual order within a day")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["date", "order"]
+        constraints = [
+            # Ensure unique order per day for dated items
+            models.UniqueConstraint(
+                fields=["collection", "date", "order"],
+                name="unique_order_per_collection_day",
+                condition=Q(is_global=False) & Q(date__isnull=False),
+            ),
+            # Ensure unique order within the global group for a collection
+            models.UniqueConstraint(
+                fields=["collection", "order"],
+                name="unique_order_per_collection_global",
+                condition=Q(is_global=True),
+            ),
+        ]
+
+    def __str__(self):
+        scope = "GLOBAL" if self.is_global else str(self.date)
+        return f"{self.collection.name} - {self.content_type.model} - {scope} ({self.order})"
+
+    def clean(self):
+        # Enforce XOR between date and is_global
+        if self.is_global and self.date is not None:
+            raise ValidationError({
+                "is_global": "Global items must not have a date.",
+                "date": "Provide either a date or set is_global, not both.",
+            })
+        if (not self.is_global) and self.date is None:
+            raise ValidationError({
+                "date": "Dated items must include a date. To create a trip-wide item, set is_global=true.",
+            })
+    
+    @property
+    def start_datetime(self):
+        obj = self.item
+
+        for field in ("start_date", "check_in", "date"):
+            if hasattr(obj, field):
+                value = getattr(obj, field)
+                if value:
+                    return value
+
+        return None
+
+    @property
+    def end_datetime(self):
+        obj = self.item
+
+        for field in ("end_date", "check_out"):
+            if hasattr(obj, field):
+                value = getattr(obj, field)
+                if value:
+                    return value
+
+        return None

@@ -33,7 +33,7 @@
 	import FileIcon from '~icons/mdi/file';
 	import CloseIcon from '~icons/mdi/close';
 	import StravaActivityCard from '../StravaActivityCard.svelte';
-	import ActivityCard from '../ActivityCard.svelte';
+	import ActivityCard from '../cards/ActivityCard.svelte';
 
 	// Props
 	export let collection: Collection | null = null;
@@ -45,6 +45,7 @@
 	export let objectId: string;
 	export let trails: Trail[] = [];
 	export let measurementSystem: 'metric' | 'imperial' = 'metric';
+	export let initialVisitDate: string | null = null; // Used to pre-fill visit date when adding from itinerary planner
 
 	const dispatch = createEventDispatcher();
 
@@ -228,7 +229,7 @@
 		}).localDate;
 	}
 
-	async function addVisit() {
+	async function addVisit(isAuto: boolean = false) {
 		// If editing an existing visit, patch instead of creating new
 		if (visitIdEditing) {
 			const response = await fetch(`/api/visits/${visitIdEditing}/`, {
@@ -279,12 +280,14 @@
 			}
 		}
 
-		// Reset form fields
-		note = '';
-		localStartDate = '';
-		localEndDate = '';
-		utcStartDate = null;
-		utcEndDate = null;
+		// Reset form fields. If this call was an auto-generated visit, allow clearing even if initialVisitDate is set
+		if (!initialVisitDate || isAuto) {
+			note = '';
+			localStartDate = '';
+			localEndDate = '';
+			utcStartDate = null;
+			utcEndDate = null;
+		}
 	}
 
 	// Activity management functions
@@ -694,6 +697,43 @@
 		} catch {
 			stravaEnabled = false;
 		}
+
+		// If initialVisitDate is provided and a visit on that date doesn't exist, create and upload a new all day visit on that date
+		if (initialVisitDate) {
+			const targetDate = initialVisitDate.split('T')[0]; // Ensure we have just YYYY-MM-DD
+
+			// Check if any visit already exists for this date
+			const visitExists = visits?.some((visit) => {
+				const visitStart = visit.start_date.split('T')[0];
+				const visitEnd = visit.end_date.split('T')[0];
+				return targetDate >= visitStart && targetDate <= visitEnd;
+			});
+
+			if (!visitExists) {
+				// Set up an all-day visit for this date
+				allDay = true;
+				localStartDate = targetDate;
+				localEndDate = targetDate;
+
+				// Convert to UTC dates
+				utcStartDate = updateUTCDate({
+					localDate: localStartDate,
+					timezone: selectedStartTimezone,
+					allDay: true
+				}).utcDate;
+
+				utcEndDate = updateUTCDate({
+					localDate: localEndDate,
+					timezone: selectedStartTimezone,
+					allDay: true
+				}).utcDate;
+
+				// Automatically save the visit
+				await addVisit(true);
+				// Clear the initialVisitDate after successful creation
+				initialVisitDate = null;
+			}
+		}
 	});
 
 	$: isDateValid = validateDateRange(utcStartDate ?? '', utcEndDate ?? '').valid;
@@ -852,7 +892,7 @@
 							class="btn btn-{typeConfig.color} btn-sm gap-2"
 							type="button"
 							disabled={!localStartDate || !isDateValid}
-							on:click={addVisit}
+							on:click={() => addVisit(false)}
 						>
 							<PlusIcon class="w-4 h-4" />
 							{visitIdEditing ? $t('adventures.update_visit') : $t('adventures.add_visit')}

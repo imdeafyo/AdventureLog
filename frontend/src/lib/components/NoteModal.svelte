@@ -16,6 +16,7 @@
 	export let note: Note | null = null;
 	export let collection: Collection;
 	export let user: User | null = null;
+	export let initialVisitDate: string | null = null;
 
 	let constrainDates: boolean = true;
 
@@ -44,14 +45,30 @@
 		console.log(newNote.links);
 	}
 
+	const getSeedDate = (): string | null => {
+		// Prefer the existing note date, otherwise fall back to the itinerary day we launched from
+		if (note?.date) return note.date;
+		if (initialVisitDate) return initialVisitDate;
+		return null;
+	};
+
 	let newNote = {
 		name: note?.name || '',
 		content: note?.content || '',
-		date: note?.date || undefined || null,
+		date: getSeedDate() || undefined || null,
 		links: note?.links || [],
 		collection: collection.id,
 		is_public: collection.is_public
 	};
+
+	const hasVisitDateSuggestion = !!initialVisitDate && !note?.date;
+
+	function useVisitDate() {
+		if (isReadOnly) return;
+		if (initialVisitDate) {
+			newNote = { ...newNote, date: initialVisitDate };
+		}
+	}
 
 	let initialName: string = note?.name || '';
 
@@ -264,6 +281,17 @@
 									<label class="label" for="date">
 										<span class="label-text font-medium">{$t('adventures.date')}</span>
 									</label>
+									{#if !isReadOnly && hasVisitDateSuggestion}
+										<div
+											class="flex flex-wrap items-center gap-2 mb-2 text-xs text-base-content/70"
+										>
+											<span class="badge badge-primary badge-soft">Itinerary day</span>
+											<span>Prefilled to match your selected day.</span>
+											<button type="button" class="btn btn-ghost btn-xs" on:click={useVisitDate}>
+												Reapply date
+											</button>
+										</div>
+									{/if}
 									{#if collection && collection.start_date && collection.end_date && !isReadOnly}
 										<div class="flex items-center gap-2 mb-2">
 											<input

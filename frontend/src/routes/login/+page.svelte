@@ -12,11 +12,12 @@
 
 	let socialProviders = data.props?.socialProviders ?? [];
 
+	let socialOnly: boolean = data.props?.socialOnly ?? false;
+
 	import GitHub from '~icons/mdi/github';
 	import OpenIdConnect from '~icons/mdi/openid';
 
 	import { page } from '$app/stores';
-	import { gsap } from 'gsap';
 	import { onMount } from 'svelte';
 
 	function handleEnhanceSubmit() {
@@ -32,15 +33,6 @@
 			}
 		};
 	}
-
-	onMount(() => {
-		// Minimal fade-in only
-		gsap.fromTo(
-			'.main-container',
-			{ opacity: 0 },
-			{ opacity: 1, duration: 0.6, ease: 'power2.out' }
-		);
-	});
 
 	import ImageInfoModal from '$lib/components/ImageInfoModal.svelte';
 	import type { Background } from '$lib/types.js';
@@ -78,83 +70,12 @@
 								<h2 class="text-4xl font-bold text-base-content mb-2">{$t('auth.login')}</h2>
 							</div>
 
-							<!-- Form -->
+							<!-- Form / Social Only -->
 							<div class="max-w-sm mx-auto w-full">
-								<form method="post" use:enhance={handleEnhanceSubmit} class="space-y-4">
-									<!-- Username -->
-									<div class="form-control">
-										<label class="label" for="username">
-											<span class="label-text font-medium">{$t('auth.username')}</span>
-										</label>
-										<input
-											name="username"
-											id="username"
-											type="text"
-											class="input input-bordered w-full focus:input-primary"
-											placeholder={$t('auth.enter_username')}
-											autocomplete="username"
-										/>
-									</div>
-
-									<!-- Password -->
-									<div class="form-control">
-										<label class="label" for="password">
-											<span class="label-text font-medium">{$t('auth.password')}</span>
-										</label>
-										<input
-											type="password"
-											name="password"
-											id="password"
-											class="input input-bordered w-full focus:input-primary"
-											placeholder={$t('auth.enter_password')}
-											autocomplete="current-password"
-										/>
-									</div>
-
-									<!-- TOTP -->
-									{#if $page.form?.mfa_required}
-										<div class="form-control">
-											<label class="label" for="totp">
-												<span class="label-text font-medium">{$t('auth.totp')}</span>
-											</label>
-											<input
-												type="text"
-												name="totp"
-												id="totp"
-												inputmode="numeric"
-												pattern="[0-9]*"
-												autocomplete="one-time-code"
-												class="input input-bordered w-full focus:input-primary"
-												placeholder="000000"
-												maxlength="6"
-											/>
-										</div>
-									{/if}
-
-									<!-- Submit Button -->
-									<div class="form-control mt-6">
-										<button type="submit" class="btn btn-primary w-full" disabled={isSubmitting}>
-											{#if isSubmitting}
-												<span class="loading loading-spinner"></span>
-												<span class="ml-2">{$t('auth.logging_in')}...</span>
-											{:else}
-												{$t('auth.login')}
-											{/if}
-										</button>
-									</div>
-
-									<!-- Error Message -->
-									{#if ($page.form?.message && $page.form?.message.length > 1) || $page.form?.type === 'error'}
-										<div class="alert alert-error mt-4">
-											<span>{$t($page.form.message) || $t('auth.login_error')}</span>
-										</div>
-									{/if}
-
-									<!-- Social Login -->
+								{#if socialOnly}
 									{#if socialProviders.length > 0}
-										<div class="divider text-sm">{$t('auth.or_3rd_party')}</div>
-
 										<div class="space-y-2">
+											<div class="divider text-sm">{$t('auth.or_3rd_party')}</div>
 											{#each socialProviders as provider}
 												<a
 													href={provider.url}
@@ -171,16 +92,113 @@
 										</div>
 									{/if}
 
-									<!-- Footer Links -->
 									<div class="flex justify-between text-sm mt-6 pt-4 border-t border-base-300">
-										<a href="/signup" class="link link-primary">
-											{$t('auth.signup')}
-										</a>
-										<a href="/user/reset-password" class="link link-primary">
-											{$t('auth.forgot_password')}
-										</a>
+										<a href="/signup" class="link link-primary">{$t('auth.signup')}</a>
+										<a href="/user/reset-password" class="link link-primary"
+											>{$t('auth.forgot_password')}</a
+										>
 									</div>
-								</form>
+								{:else}
+									<form method="post" use:enhance={handleEnhanceSubmit} class="space-y-4">
+										<!-- Username -->
+										<div class="form-control">
+											<label class="label" for="username">
+												<span class="label-text font-medium">{$t('auth.username')}</span>
+											</label>
+											<input
+												name="username"
+												id="username"
+												type="text"
+												class="input input-bordered w-full focus:input-primary"
+												placeholder={$t('auth.enter_username')}
+												autocomplete="username"
+											/>
+										</div>
+
+										<!-- Password -->
+										<div class="form-control">
+											<label class="label" for="password">
+												<span class="label-text font-medium">{$t('auth.password')}</span>
+											</label>
+											<input
+												type="password"
+												name="password"
+												id="password"
+												class="input input-bordered w-full focus:input-primary"
+												placeholder={$t('auth.enter_password')}
+												autocomplete="current-password"
+											/>
+										</div>
+
+										<!-- TOTP -->
+										{#if $page.form?.mfa_required}
+											<div class="form-control">
+												<label class="label" for="totp">
+													<span class="label-text font-medium">{$t('auth.totp')}</span>
+												</label>
+												<input
+													type="text"
+													name="totp"
+													id="totp"
+													inputmode="numeric"
+													pattern="[0-9]*"
+													autocomplete="one-time-code"
+													class="input input-bordered w-full focus:input-primary"
+													placeholder="000000"
+													maxlength="6"
+												/>
+											</div>
+										{/if}
+
+										<!-- Submit Button -->
+										<div class="form-control mt-6">
+											<button type="submit" class="btn btn-primary w-full" disabled={isSubmitting}>
+												{#if isSubmitting}
+													<span class="loading loading-spinner"></span>
+													<span class="ml-2">{$t('auth.logging_in')}...</span>
+												{:else}
+													{$t('auth.login')}
+												{/if}
+											</button>
+										</div>
+
+										<!-- Error Message -->
+										{#if ($page.form?.message && $page.form?.message.length > 1) || $page.form?.type === 'error'}
+											<div class="alert alert-error mt-4">
+												<span>{$t($page.form.message) || $t('auth.login_error')}</span>
+											</div>
+										{/if}
+
+										<!-- Social Login -->
+										{#if socialProviders.length > 0}
+											<div class="divider text-sm">{$t('auth.or_3rd_party')}</div>
+
+											<div class="space-y-2">
+												{#each socialProviders as provider}
+													<a
+														href={provider.url}
+														class="btn btn-outline w-full flex items-center gap-2"
+													>
+														{#if provider.provider === 'github'}
+															<GitHub class="w-4 h-4" />
+														{:else if provider.provider === 'openid_connect'}
+															<OpenIdConnect class="w-4 h-4" />
+														{/if}
+														Continue with {provider.name}
+													</a>
+												{/each}
+											</div>
+										{/if}
+
+										<!-- Footer Links -->
+										<div class="flex justify-between text-sm mt-6 pt-4 border-t border-base-300">
+											<a href="/signup" class="link link-primary">{$t('auth.signup')}</a>
+											<a href="/user/reset-password" class="link link-primary"
+												>{$t('auth.forgot_password')}</a
+											>
+										</div>
+									</form>
+								{/if}
 							</div>
 						</div>
 

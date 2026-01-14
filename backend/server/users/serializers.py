@@ -50,7 +50,7 @@ class UserDetailsSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = CustomUser
-        extra_fields = ['profile_pic', 'uuid', 'public_profile', 'measurement_system']
+        extra_fields = ['profile_pic', 'uuid', 'public_profile']
 
         if hasattr(UserModel, 'USERNAME_FIELD'):
             extra_fields.append(UserModel.USERNAME_FIELD)
@@ -68,6 +68,8 @@ class UserDetailsSerializer(serializers.ModelSerializer):
             extra_fields.append('disable_password')
         if hasattr(UserModel, 'measurement_system'):
             extra_fields.append('measurement_system')
+        if hasattr(UserModel, 'default_currency'):
+            extra_fields.append('default_currency')
 
         fields = ['pk', *extra_fields]
         read_only_fields = ('email', 'date_joined', 'is_staff', 'is_superuser', 'is_active', 'pk', 'disable_password')
@@ -98,7 +100,7 @@ class CustomUserDetailsSerializer(UserDetailsSerializer):
 
     class Meta(UserDetailsSerializer.Meta):
         model = CustomUser
-        fields = UserDetailsSerializer.Meta.fields + ['profile_pic', 'uuid', 'public_profile', 'has_password', 'disable_password', 'measurement_system']
+        fields = UserDetailsSerializer.Meta.fields + ['has_password', 'disable_password']
         read_only_fields = UserDetailsSerializer.Meta.read_only_fields + ('uuid', 'has_password', 'disable_password')
 
     @staticmethod

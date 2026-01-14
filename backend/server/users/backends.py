@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth.backends import ModelBackend
 from allauth.socialaccount.models import SocialAccount
 from allauth.account.auth_backends import AuthenticationBackend as AllauthBackend
@@ -7,6 +8,10 @@ User = get_user_model()
 
 class NoPasswordAuthBackend(ModelBackend):
     def authenticate(self, request, username=None, password=None, **kwargs):
+        # Block all password-based logins when social-only mode is enforced
+        if getattr(settings, "FORCE_SOCIALACCOUNT_LOGIN", False) and password:
+            return None
+
         # Handle allauth-specific authentication (like email login)
         allauth_backend = AllauthBackend()
         allauth_user = allauth_backend.authenticate(request, username=username, password=password, **kwargs)

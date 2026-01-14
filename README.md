@@ -60,7 +60,7 @@ AdventureLog was created to solve a problem: the lack of a modern, open-source, 
   <img src="./brand/screenshots/dashboard.png" alt="Dashboard" />
   <p>Displays a summary of your locations, including your world travel stats.</p>
   <img src="./brand/screenshots/itinerary.png" alt="Itinerary" />
-  <p>Plan your adventures and travel itinerary with a list of activities and a map view. View your trip in a variety of ways, including an itinerary list, a map view, and a calendar view.</p>
+  <p>Plan your adventures and travel itinerary with a list of activities and a map view. View your trip in a variety of ways, including an itinerary list, a map view, and a calendar view. Order your plans and details to create the perfect trip.</p>
   <img src="./brand/screenshots/countries.png" alt="Countries" />
   <p>Lists all the countries you have visited and plan to visit, with the ability to filter by visit status.</p>
   <img src="./brand/screenshots/regions.png" alt="Regions" />

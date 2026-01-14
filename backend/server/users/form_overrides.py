@@ -15,3 +15,16 @@ class CustomSignupForm(forms.Form):
         # Save the user instance
         user.save()
         return user
+    
+class UseAdminInviteForm(forms.Form):
+    """
+    Dummy form that just tells admins to use the Django admin to send invites.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # Remove any fields; we only want to show a message
+        self.fields.clear()
+
+    def as_widget(self):
+        # This is not needed; we’ll just use a template
+        pass

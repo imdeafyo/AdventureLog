@@ -8,6 +8,7 @@
 
 	export let activity: StravaActivity;
 	export let measurementSystem: 'metric' | 'imperial' = 'metric';
+	export let downloadOnly: boolean = false;
 
 	interface SportConfig {
 		color: string;
@@ -111,63 +112,83 @@
 			</div>
 
 			<div class="flex items-center gap-2">
-				<button
-					type="button"
-					on:click={handleImportActivity}
-					class="btn btn-success btn-sm btn-circle"
-					aria-label={$t('adventures.import_activity')}
-				>
-					<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							stroke-width="2"
-							d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
-						/>
-					</svg>
-				</button>
-				<div class="dropdown dropdown-end">
-					<div
-						tabindex="0"
-						role="button"
-						class="btn btn-ghost btn-sm btn-circle"
-						aria-label={$t('adventures.activity_options')}
+				{#if downloadOnly}
+					<a
+						href={activity.export_gpx}
+						target="_blank"
+						rel="noopener noreferrer"
+						class="btn btn-success btn-sm gap-1"
+						aria-label={$t('adventures.download_gpx')}
 					>
 						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
 							<path
 								stroke-linecap="round"
 								stroke-linejoin="round"
 								stroke-width="2"
-								d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zM12 13a1 1 0 110-2 1 1 0 010 2zM12 20a1 1 0 110-2 1 1 0 010 2z"
+								d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
 							/>
 						</svg>
-					</div>
-					<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
-					<ul
-						tabindex="0"
-						class="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow"
+						{$t('adventures.download_gpx')}
+					</a>
+				{:else}
+					<button
+						type="button"
+						on:click={handleImportActivity}
+						class="btn btn-success btn-sm btn-circle"
+						aria-label={$t('adventures.import_activity')}
 					>
-						<li>
-							<a href={activity.export_gpx} target="_blank" rel="noopener noreferrer">
-								{$t('adventures.export_gpx')}
-							</a>
-						</li>
-						<li>
-							<a href={activity.export_original} target="_blank" rel="noopener noreferrer">
-								{$t('adventures.export_original')}
-							</a>
-						</li>
-						<li>
-							<a
-								href="https://www.strava.com/activities/{activity.id}"
-								target="_blank"
-								rel="noopener noreferrer"
-							>
-								{$t('adventures.view_on') + ' Strava'}
-							</a>
-						</li>
-					</ul>
-				</div>
+						<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+							<path
+								stroke-linecap="round"
+								stroke-linejoin="round"
+								stroke-width="2"
+								d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+							/>
+						</svg>
+					</button>
+					<div class="dropdown dropdown-end">
+						<div
+							tabindex="0"
+							role="button"
+							class="btn btn-ghost btn-sm btn-circle"
+							aria-label={$t('adventures.activity_options')}
+						>
+							<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									stroke-width="2"
+									d="M12 5v.01M12 12v.01M12 19v.01M12 6a1 1 0 110-2 1 1 0 010 2zM12 13a1 1 0 110-2 1 1 0 010 2zM12 20a1 1 0 110-2 1 1 0 010 2z"
+								/>
+							</svg>
+						</div>
+						<!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+						<ul
+							tabindex="0"
+							class="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow"
+						>
+							<li>
+								<a href={activity.export_gpx} target="_blank" rel="noopener noreferrer">
+									{$t('adventures.export_gpx')}
+								</a>
+							</li>
+							<li>
+								<a href={activity.export_original} target="_blank" rel="noopener noreferrer">
+									{$t('adventures.export_original')}
+								</a>
+							</li>
+							<li>
+								<a
+									href="https://www.strava.com/activities/{activity.id}"
+									target="_blank"
+									rel="noopener noreferrer"
+								>
+									{$t('adventures.view_on') + ' Strava'}
+								</a>
+							</li>
+						</ul>
+					</div>
+				{/if}
 			</div>
 		</div>
 

@@ -4,17 +4,7 @@
 
 	export let data;
 	console.log(data);
-	import { gsap } from 'gsap';
 	import { onMount } from 'svelte';
-
-	onMount(() => {
-		// Minimal fade-in only
-		gsap.fromTo(
-			'.main-container',
-			{ opacity: 0 },
-			{ opacity: 1, duration: 0.6, ease: 'power2.out' }
-		);
-	});
 
 	import FileImageBox from '~icons/mdi/file-image-box';
 

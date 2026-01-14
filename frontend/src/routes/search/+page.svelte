@@ -1,10 +1,10 @@
 <script lang="ts">
-	import LocationCard from '$lib/components/LocationCard.svelte';
-	import RegionCard from '$lib/components/RegionCard.svelte';
-	import CityCard from '$lib/components/CityCard.svelte';
-	import CountryCard from '$lib/components/CountryCard.svelte';
-	import CollectionCard from '$lib/components/CollectionCard.svelte';
-	import UserCard from '$lib/components/UserCard.svelte';
+	import LocationCard from '$lib/components/cards/LocationCard.svelte';
+	import RegionCard from '$lib/components/cards/RegionCard.svelte';
+	import CityCard from '$lib/components/cards/CityCard.svelte';
+	import CountryCard from '$lib/components/cards/CountryCard.svelte';
+	import CollectionCard from '$lib/components/cards/CollectionCard.svelte';
+	import UserCard from '$lib/components/cards/UserCard.svelte';
 	import { page } from '$app/stores';
 	import type { PageData } from './$types';
 	import { t } from 'svelte-i18n';

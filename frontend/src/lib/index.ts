@@ -867,12 +867,6 @@ export function getBasemapUrl(type = 'default'): any {
 				'© OpenStreetMap contributors, © CARTO'
 			);
 
-		case 'wikimedia':
-			return getXYZStyle(
-				'https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}.png',
-				'© OpenStreetMap contributors, Wikimedia Maps'
-			);
-
 		case 'usgs-imagery':
 			return getXYZStyle(
 				'https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}',
@@ -994,7 +988,6 @@ export const basemapOptions = [
 
 	// Standard & Vector
 	{ value: 'osm-standard', label: 'OpenStreetMap', icon: '🌍', category: 'Standard' },
-	{ value: 'wikimedia', label: 'Wikimedia', icon: '📖', category: 'Standard' },
 
 	// Satellite & Imagery
 	{ value: 'satellite', label: 'Satellite', icon: '🛰️', category: 'Satellite' },

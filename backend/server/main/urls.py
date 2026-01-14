@@ -33,6 +33,8 @@ urlpatterns = [
 
     path('csrf/', get_csrf_token, name='get_csrf_token'),
     path('public-url/', get_public_url, name='get_public_url'),
+
+    path("invitations/", include('invitations.urls', namespace='invitations')),
     
     path('', TemplateView.as_view(template_name='home.html')),
     

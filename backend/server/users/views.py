@@ -171,7 +171,8 @@ class EnabledSocialProvidersView(APIView):
             providers.append({
                 'provider': provider.provider,
                 'url': f"{getenv('PUBLIC_URL')}/accounts/{new_provider}/login/",
-                'name': provider.name
+                'name': provider.name,
+                'usage_required': settings.FORCE_SOCIALACCOUNT_LOGIN
             })
         return Response(providers, status=status.HTTP_200_OK)
     

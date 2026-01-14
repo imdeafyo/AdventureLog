@@ -45,41 +45,90 @@ class ReverseGeocodeViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post'])
     def mark_visited_region(self, request):
-        # searches through all of the users locations, if the serialized data is_visited, is true, runs reverse geocode on the locations and if a region is found, marks it as visited. Use the extractIsoCode function to get the region
+        """
+        Marks regions and cities as visited based on user's visited locations.
+        Uses the pre-stored region/city data on locations to avoid expensive reverse geocoding.
+        """
         new_region_count = 0
         new_regions = {}
         new_city_count = 0
         new_cities = {}
-        locations = Location.objects.filter(user=self.request.user)
-        serializer = LocationSerializer(locations, many=True)
-        for adventure, serialized_adventure in zip(locations, serializer.data):
-            if serialized_adventure['is_visited'] == True:
-                lat = adventure.latitude
-                lon = adventure.longitude
-                if not lat or not lon:
-                    continue
-
-                # Use the existing reverse_geocode function which handles both Google and OSM
-                data = reverse_geocode(lat, lon, self.request.user)
-                if 'error' in data:
-                    continue
-
-                # data already contains region_id and city_id
-                if 'region_id' in data and data['region_id'] is not None:
-                    region = Region.objects.filter(id=data['region_id']).first()
-                    visited_region = VisitedRegion.objects.filter(region=region, user=self.request.user).first()
-                    if not visited_region:
-                        visited_region = VisitedRegion(region=region, user=self.request.user)
-                        visited_region.save()
-                        new_region_count += 1
-                        new_regions[region.id] = region.name
-
-                if 'city_id' in data and data['city_id'] is not None:
-                    city = City.objects.filter(id=data['city_id']).first()
-                    visited_city = VisitedCity.objects.filter(city=city, user=self.request.user).first()
-                    if not visited_city:
-                        visited_city = VisitedCity(city=city, user=self.request.user)
-                        visited_city.save()
-                        new_city_count += 1
-                        new_cities[city.id] = city.name
-        return Response({"new_regions": new_region_count, "regions": new_regions, "new_cities": new_city_count, "cities": new_cities})
+        
+        # Get all visited locations with their region and city data
+        visited_locations = Location.objects.filter(
+            user=self.request.user
+        ).select_related('region', 'city')
+        
+        # Track unique regions and cities to create VisitedRegion/VisitedCity entries
+        regions_to_mark = set()
+        cities_to_mark = set()
+        
+        for location in visited_locations:
+            # Only process locations that are marked as visited
+            if not location.is_visited_status():
+                continue
+            
+            # Collect regions
+            if location.region:
+                regions_to_mark.add(location.region.id)
+            
+            # Collect cities
+            if location.city:
+                cities_to_mark.add(location.city.id)
+        
+        # Get existing visited regions for this user
+        existing_visited_regions = set(
+            VisitedRegion.objects.filter(
+                user=self.request.user,
+                region_id__in=regions_to_mark
+            ).values_list('region_id', flat=True)
+        )
+        
+        # Create new VisitedRegion entries
+        new_visited_regions = []
+        for region_id in regions_to_mark:
+            if region_id not in existing_visited_regions:
+                new_visited_regions.append(
+                    VisitedRegion(region_id=region_id, user=self.request.user)
+                )
+        
+        if new_visited_regions:
+            VisitedRegion.objects.bulk_create(new_visited_regions)
+            new_region_count = len(new_visited_regions)
+            # Get region names for response
+            regions = Region.objects.filter(
+                id__in=[vr.region_id for vr in new_visited_regions]
+            )
+            new_regions = {r.id: r.name for r in regions}
+        
+        # Get existing visited cities for this user
+        existing_visited_cities = set(
+            VisitedCity.objects.filter(
+                user=self.request.user,
+                city_id__in=cities_to_mark
+            ).values_list('city_id', flat=True)
+        )
+        
+        # Create new VisitedCity entries
+        new_visited_cities = []
+        for city_id in cities_to_mark:
+            if city_id not in existing_visited_cities:
+                new_visited_cities.append(
+                    VisitedCity(city_id=city_id, user=self.request.user)
+                )
+        
+        if new_visited_cities:
+            VisitedCity.objects.bulk_create(new_visited_cities)
+            new_city_count = len(new_visited_cities)
+            # Get city names for response
+            cities = City.objects.filter(
+                id__in=[vc.city_id for vc in new_visited_cities]
+            )
+            new_cities = {c.id: c.name for c in cities}
+        
+        return Response({
+            "new_regions": new_region_count,
+            "regions": new_regions,
+            "new_cities": new_city_count,
+            "cities": new_cities
+        })

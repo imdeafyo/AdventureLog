@@ -1,5 +1,5 @@
 <script lang="ts">
-	import UserCard from '$lib/components/UserCard.svelte';
+	import UserCard from '$lib/components/cards/UserCard.svelte';
 	import type { User } from '$lib/types';
 	import type { PageData } from './$types';
 	import { t } from 'svelte-i18n';

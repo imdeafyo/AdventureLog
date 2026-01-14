@@ -19,7 +19,8 @@ from django.contrib.contenttypes.models import ContentType
 
 from adventures.models import (
     Location, Collection, Transportation, Note, Checklist, ChecklistItem,
-    ContentImage, ContentAttachment, Category, Lodging, Visit, Trail, Activity
+    ContentImage, ContentAttachment, Category, Lodging, Visit, Trail, Activity,
+    CollectionItineraryItem
 )
 from worldtravel.models import VisitedCity, VisitedRegion, City, Region, Country
 
@@ -52,7 +53,8 @@ class BackupViewSet(viewsets.ViewSet):
             'checklists': [],
             'lodging': [],
             'visited_cities': [],
-            'visited_regions': []
+            'visited_regions': [],
+            'itinerary_items': []
         }
 
         # Export Visited Cities
@@ -75,6 +77,9 @@ class BackupViewSet(viewsets.ViewSet):
                 'icon': category.icon,
             })
         
+        # Track images so we can reference them for collection primary images
+        image_export_map = {}
+
         # Export Collections
         for idx, collection in enumerate(user.collection_set.all()):
             export_data['collections'].append({
@@ -175,7 +180,7 @@ class BackupViewSet(viewsets.ViewSet):
                 location_data['trails'].append(trail_data)
             
             # Add images
-            for image in location.images.all():
+            for image_index, image in enumerate(location.images.all()):
                 image_data = {
                     'immich_id': image.immich_id,
                     'is_primary': image.is_primary,
@@ -184,6 +189,13 @@ class BackupViewSet(viewsets.ViewSet):
                 if image.image:
                     image_data['filename'] = image.image.name.split('/')[-1]
                 location_data['images'].append(image_data)
+
+                image_export_map[image.id] = {
+                    'location_export_id': idx,
+                    'image_index': image_index,
+                    'immich_id': image.immich_id,
+                    'filename': image_data['filename'],
+                }
             
             # Add attachments
             for attachment in location.attachments.all():
@@ -196,14 +208,21 @@ class BackupViewSet(viewsets.ViewSet):
                 location_data['attachments'].append(attachment_data)
             
             export_data['locations'].append(location_data)
+
+        # Attach collection primary image references (if any)
+        for idx, collection in enumerate(user.collection_set.all()):
+            primary = collection.primary_image
+            if primary and primary.id in image_export_map:
+                export_data['collections'][idx]['primary_image'] = image_export_map[primary.id]
         
         # Export Transportation
-        for transport in user.transportation_set.all():
+        for idx, transport in enumerate(user.transportation_set.all()):
             collection_export_id = None
             if transport.collection:
                 collection_export_id = collection_name_to_id.get(transport.collection.name)
             
             export_data['transportation'].append({
+                'export_id': idx,
                 'type': transport.type,
                 'name': transport.name,
                 'description': transport.description,
@@ -225,12 +244,13 @@ class BackupViewSet(viewsets.ViewSet):
             })
         
         # Export Notes
-        for note in user.note_set.all():
+        for idx, note in enumerate(user.note_set.all()):
             collection_export_id = None
             if note.collection:
                 collection_export_id = collection_name_to_id.get(note.collection.name)
                 
             export_data['notes'].append({
+                'export_id': idx,
                 'name': note.name,
                 'content': note.content,
                 'links': note.links,
@@ -240,12 +260,13 @@ class BackupViewSet(viewsets.ViewSet):
             })
         
         # Export Checklists
-        for checklist in user.checklist_set.all():
+        for idx, checklist in enumerate(user.checklist_set.all()):
             collection_export_id = None
             if checklist.collection:
                 collection_export_id = collection_name_to_id.get(checklist.collection.name)
                 
             checklist_data = {
+                'export_id': idx,
                 'name': checklist.name,
                 'date': checklist.date.isoformat() if checklist.date else None,
                 'is_public': checklist.is_public,
@@ -263,12 +284,13 @@ class BackupViewSet(viewsets.ViewSet):
             export_data['checklists'].append(checklist_data)
         
         # Export Lodging
-        for lodging in user.lodging_set.all():
+        for idx, lodging in enumerate(user.lodging_set.all()):
             collection_export_id = None
             if lodging.collection:
                 collection_export_id = collection_name_to_id.get(lodging.collection.name)
-                
+            
             export_data['lodging'].append({
+                'export_id': idx,
                 'name': lodging.name,
                 'type': lodging.type,
                 'description': lodging.description,
@@ -285,6 +307,41 @@ class BackupViewSet(viewsets.ViewSet):
                 'is_public': lodging.is_public,
                 'collection_export_id': collection_export_id
             })
+        
+        # Export Itinerary Items
+        # Create export_id mappings for all content types
+        location_id_to_export_id = {loc.id: idx for idx, loc in enumerate(user.location_set.all())}
+        transportation_id_to_export_id = {t.id: idx for idx, t in enumerate(user.transportation_set.all())}
+        note_id_to_export_id = {n.id: idx for idx, n in enumerate(user.note_set.all())}
+        lodging_id_to_export_id = {l.id: idx for idx, l in enumerate(user.lodging_set.all())}
+        checklist_id_to_export_id = {c.id: idx for idx, c in enumerate(user.checklist_set.all())}
+        
+        for collection_idx, collection in enumerate(user.collection_set.all()):
+            for itinerary_item in collection.itinerary_items.all():
+                content_type_str = itinerary_item.content_type.model
+                item_reference = None
+                
+                # Determine how to reference the item based on content type using export_ids
+                if content_type_str == 'location':
+                    item_reference = location_id_to_export_id.get(itinerary_item.object_id)
+                elif content_type_str == 'transportation':
+                    item_reference = transportation_id_to_export_id.get(itinerary_item.object_id)
+                elif content_type_str == 'note':
+                    item_reference = note_id_to_export_id.get(itinerary_item.object_id)
+                elif content_type_str == 'lodging':
+                    item_reference = lodging_id_to_export_id.get(itinerary_item.object_id)
+                elif content_type_str == 'checklist':
+                    item_reference = checklist_id_to_export_id.get(itinerary_item.object_id)
+                
+                if item_reference is not None:
+                    export_data['itinerary_items'].append({
+                        'collection_export_id': collection_idx,
+                        'content_type': content_type_str,
+                        'item_reference': item_reference,
+                        'date': itinerary_item.date.isoformat() if itinerary_item.date else None,
+                        'is_global': itinerary_item.is_global,
+                        'order': itinerary_item.order
+                    })
         
         # Create ZIP file
         with tempfile.NamedTemporaryFile(delete=False, suffix='.zip') as tmp_file:
@@ -402,6 +459,9 @@ class BackupViewSet(viewsets.ViewSet):
     
     def _clear_user_data(self, user):
         """Clear all existing user data before import"""
+        # Delete itinerary items first (they reference collections and content)
+        CollectionItineraryItem.objects.filter(collection__user=user).delete()
+        
         # Delete in reverse order of dependencies
         user.activity_set.all().delete()  # Delete activities first
         user.trail_set.all().delete()     # Delete trails
@@ -439,7 +499,7 @@ class BackupViewSet(viewsets.ViewSet):
             'transportation': 0, 'notes': 0, 'checklists': 0,
             'checklist_items': 0, 'lodging': 0, 'images': 0, 
             'attachments': 0, 'visited_cities': 0, 'visited_regions': 0,
-            'trails': 0, 'activities': 0, 'gpx_files': 0
+            'trails': 0, 'activities': 0, 'gpx_files': 0, 'itinerary_items': 0
         }
 
         # Import Visited Cities
@@ -475,6 +535,9 @@ class BackupViewSet(viewsets.ViewSet):
             category_map[cat_data['name']] = category
             summary['categories'] += 1
         
+        pending_primary_images = []
+        location_images_map = {}
+
         # Import Collections
         for col_data in backup_data.get('collections', []):
             collection = Collection.objects.create(
@@ -498,6 +561,13 @@ class BackupViewSet(viewsets.ViewSet):
                         collection.shared_with.add(shared_user)
                 except User.DoesNotExist:
                     pass
+
+            # Defer primary image assignment until images are created
+            if col_data.get('primary_image'):
+                pending_primary_images.append({
+                    'collection_export_id': col_data['export_id'],
+                    'data': col_data['primary_image'],
+                })
         
         # Import Locations
         for adv_data in backup_data.get('locations', []):
@@ -541,6 +611,7 @@ class BackupViewSet(viewsets.ViewSet):
             )
             location.save(_skip_geocode=True)  # Skip geocoding for now
             location_map[adv_data['export_id']] = location
+            location_images_map.setdefault(adv_data['export_id'], [])
             
             # Add to collections using export_ids - MUST be done after save()
             for collection_export_id in adv_data.get('collection_export_ids', []):
@@ -638,13 +709,14 @@ class BackupViewSet(viewsets.ViewSet):
             for img_data in adv_data.get('images', []):
                 immich_id = img_data.get('immich_id')
                 if immich_id:
-                    ContentImage.objects.create(
+                    new_img = ContentImage.objects.create(
                         user=user,
                         immich_id=immich_id,
                         is_primary=img_data.get('is_primary', False),
                         content_type=content_type,
                         object_id=location.id
                     )
+                    location_images_map[adv_data['export_id']].append(new_img)
                     summary['images'] += 1
                 else:
                     filename = img_data.get('filename')
@@ -652,13 +724,14 @@ class BackupViewSet(viewsets.ViewSet):
                         try:
                             img_content = zip_file.read(f'images/{filename}')
                             img_file = ContentFile(img_content, name=filename)
-                            ContentImage.objects.create(
+                            new_img = ContentImage.objects.create(
                                 user=user,
                                 image=img_file,
                                 is_primary=img_data.get('is_primary', False),
                                 content_type=content_type,
                                 object_id=location.id
                             )
+                            location_images_map[adv_data['export_id']].append(new_img)
                             summary['images'] += 1
                         except KeyError:
                             pass
@@ -682,14 +755,32 @@ class BackupViewSet(viewsets.ViewSet):
                         pass
             
             summary['locations'] += 1
+
+        # Apply primary image selections now that images exist
+        for entry in pending_primary_images:
+            collection = collection_map.get(entry['collection_export_id'])
+            data = entry.get('data', {}) or {}
+            if not collection:
+                continue
+
+            loc_export_id = data.get('location_export_id')
+            img_index = data.get('image_index')
+            if loc_export_id is None or img_index is None:
+                continue
+
+            images_for_location = location_images_map.get(loc_export_id, [])
+            if 0 <= img_index < len(images_for_location):
+                collection.primary_image = images_for_location[img_index]
+                collection.save(update_fields=['primary_image'])
         
         # Import Transportation
+        transportation_map = {}  # Map export_id to actual transportation object
         for trans_data in backup_data.get('transportation', []):
             collection = None
             if trans_data.get('collection_export_id') is not None:
                 collection = collection_map.get(trans_data['collection_export_id'])
                 
-            Transportation.objects.create(
+            transportation = Transportation.objects.create(
                 user=user,
                 type=trans_data['type'],
                 name=trans_data['name'],
@@ -710,15 +801,19 @@ class BackupViewSet(viewsets.ViewSet):
                 is_public=trans_data.get('is_public', False),
                 collection=collection
             )
+            # Only add to map if export_id exists (for backward compatibility with old backups)
+            if 'export_id' in trans_data:
+                transportation_map[trans_data['export_id']] = transportation
             summary['transportation'] += 1
         
         # Import Notes
+        note_map = {}  # Map export_id to actual note object
         for note_data in backup_data.get('notes', []):
             collection = None
             if note_data.get('collection_export_id') is not None:
                 collection = collection_map.get(note_data['collection_export_id'])
                 
-            Note.objects.create(
+            note = Note.objects.create(
                 user=user,
                 name=note_data['name'],
                 content=note_data.get('content'),
@@ -727,9 +822,13 @@ class BackupViewSet(viewsets.ViewSet):
                 is_public=note_data.get('is_public', False),
                 collection=collection
             )
+            # Only add to map if export_id exists (for backward compatibility with old backups)
+            if 'export_id' in note_data:
+                note_map[note_data['export_id']] = note
             summary['notes'] += 1
         
         # Import Checklists
+        checklist_map = {}  # Map export_id to actual checklist object
         for check_data in backup_data.get('checklists', []):
             collection = None
             if check_data.get('collection_export_id') is not None:
@@ -753,15 +852,19 @@ class BackupViewSet(viewsets.ViewSet):
                 )
                 summary['checklist_items'] += 1
             
+            # Only add to map if export_id exists (for backward compatibility with old backups)
+            if 'export_id' in check_data:
+                checklist_map[check_data['export_id']] = checklist
             summary['checklists'] += 1
         
         # Import Lodging
+        lodging_map = {}  # Map export_id to actual lodging object
         for lodg_data in backup_data.get('lodging', []):
             collection = None
             if lodg_data.get('collection_export_id') is not None:
                 collection = collection_map.get(lodg_data['collection_export_id'])
                 
-            Lodging.objects.create(
+            lodging = Lodging.objects.create(
                 user=user,
                 name=lodg_data['name'],
                 type=lodg_data.get('type', 'other'),
@@ -779,6 +882,51 @@ class BackupViewSet(viewsets.ViewSet):
                 is_public=lodg_data.get('is_public', False),
                 collection=collection
             )
+            # Only add to map if export_id exists (for backward compatibility with old backups)
+            if 'export_id' in lodg_data:
+                lodging_map[lodg_data['export_id']] = lodging
             summary['lodging'] += 1
+        
+        # Import Itinerary Items
+        # Maps already created during import of each content type
+        
+        for itinerary_data in backup_data.get('itinerary_items', []):
+            collection = collection_map.get(itinerary_data['collection_export_id'])
+            if not collection:
+                continue
+            
+            content_type_str = itinerary_data['content_type']
+            item_reference = itinerary_data['item_reference']
+            
+            # Get the actual object based on content type
+            content_object = None
+            content_type = None
+            
+            if content_type_str == 'location':
+                content_object = location_map.get(item_reference)  # item_reference is export_id
+                content_type = ContentType.objects.get(model='location')
+            elif content_type_str == 'transportation':
+                content_object = transportation_map.get(item_reference)  # item_reference is export_id
+                content_type = ContentType.objects.get(model='transportation')
+            elif content_type_str == 'note':
+                content_object = note_map.get(item_reference)  # item_reference is export_id
+                content_type = ContentType.objects.get(model='note')
+            elif content_type_str == 'lodging':
+                content_object = lodging_map.get(item_reference)  # item_reference is export_id
+                content_type = ContentType.objects.get(model='lodging')
+            elif content_type_str == 'checklist':
+                content_object = checklist_map.get(item_reference)  # item_reference is export_id
+                content_type = ContentType.objects.get(model='checklist')
+            
+            if content_object and content_type:
+                CollectionItineraryItem.objects.create(
+                    collection=collection,
+                    content_type=content_type,
+                    object_id=content_object.id,
+                    date=itinerary_data.get('date') if not itinerary_data.get('is_global') else None,
+                    is_global=bool(itinerary_data.get('is_global', False)),
+                    order=itinerary_data['order']
+                )
+                summary['itinerary_items'] += 1
         
         return summary

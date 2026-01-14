@@ -23,15 +23,28 @@ class IsPublicReadOnly(permissions.BasePermission):
 
 class CollectionShared(permissions.BasePermission):
     """
-    Allow full access if user is in shared_with of collection(s) or owner,
-    read-only if public or shared_with,
-    write only if owner or shared_with.
+    Permission class for collection sharing functionality.
+    
+    This permission handles access control for collections and objects that are shared
+    through collections. It supports:
+    
+    - Collection invite acceptance/declining for users with pending invites
+    - Full access for collection owners and shared users
+    - Read-only access for public objects (anonymous and authenticated users)
+    - Write access for owners and users shared via collections
+    
+    Access Rules:
+    - Anonymous users: read-only access to public objects
+    - Invited users: can accept/decline invites for collections they're invited to
+    - Collection owners: full access to their collections and related objects
+    - Shared users: full access to collections they're shared with and related objects
+    - Public access: read-only for objects marked as public
     """
     def has_object_permission(self, request, view, obj):
         user = request.user
         if not user or not user.is_authenticated:
             # Anonymous: only read public
-            return request.method in permissions.SAFE_METHODS and obj.is_public
+            return request.method in permissions.SAFE_METHODS and getattr(obj, 'is_public', False)
 
         # Special case for accept_invite and decline_invite actions
         # Allow access if user has a pending invite for this collection
@@ -55,10 +68,10 @@ class CollectionShared(permissions.BasePermission):
 
         # Read permission if public or owner
         if request.method in permissions.SAFE_METHODS:
-            return obj.is_public or obj.user == user
+            return getattr(obj, 'is_public', False) or getattr(obj, 'user', None) == user
 
         # Write permission only if owner or shared user via collections
-        if obj.user == user:
+        if getattr(obj, 'user', None) == user:
             return True
 
         if hasattr(obj, 'collections'):
@@ -119,6 +132,12 @@ class IsOwnerOrSharedWithFullAccess(permissions.BasePermission):
             # If the object is a Visit, get its location
             if hasattr(obj, 'location'):
                 obj = obj.location
+
+        if type(obj).__name__ == 'CollectionItineraryItem':
+            print("Checking permissions for CollectionItineraryItem object", obj)
+            if hasattr(obj, 'object_id') and hasattr(obj, 'content_type'):
+                content_object = obj.content_type.get_object_for_this_type(id=obj.object_id)
+                obj = content_object
 
         # Anonymous users only get read access to public objects
         if not user or not user.is_authenticated:

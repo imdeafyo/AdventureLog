@@ -1,0 +1,96 @@
+{% load i18n %} {% autoescape off %} {% blocktrans %}
+
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>You’re Invited to AdventureLog</title>
+    <style>
+      body {
+        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        background-color: #f0f4f8;
+        margin: 0;
+        padding: 0;
+        color: #1f2937;
+      }
+      .container {
+        max-width: 600px;
+        margin: 50px auto;
+        background: #ffffff;
+        border-radius: 16px;
+        box-shadow: 0 8px 30px rgba(0, 0, 0, 0.08);
+        padding: 40px 30px;
+        text-align: center;
+      }
+      .logo {
+        width: 80px;
+        height: 80px;
+        margin-bottom: 24px;
+      }
+      h1 {
+        font-size: 28px;
+        color: #111827;
+        margin-bottom: 16px;
+      }
+      p {
+        font-size: 16px;
+        line-height: 1.65;
+        margin-bottom: 24px;
+        color: #1f2937;
+      }
+      .highlight {
+        font-weight: 600;
+        color: #4f46e5;
+      }
+      .button {
+        display: inline-block;
+        padding: 16px 32px;
+        background: linear-gradient(90deg, #4f46e5, #6366f1);
+        color: #ffffff !important;
+        text-decoration: none;
+        font-weight: 600;
+        font-size: 16px;
+        border-radius: 12px;
+      }
+      .footer {
+        margin-top: 40px;
+        font-size: 12px;
+        line-height: 1.6;
+        color: #9ca3af;
+        text-align: center;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <img
+        src="https://adventurelog.app/adventurelog.png"
+        alt="AdventureLog"
+        class="logo"
+      />
+
+      <h1>You’re Invited to AdventureLog</h1>
+
+      <p>Hello <strong>{{ email }}</strong>,</p>
+
+      <p>
+        Adventure awaits! You've been invited to join
+        <span class="highlight">AdventureLog</span>, the ultimate travel
+        companion to track, plan, and collaborate on your journeys.
+      </p>
+      <p>Hit the button below to accept your invitation and start exploring!</p>
+      <p><a href="{{ invite_url }}" class="button">Join AdventureLog</a></p>
+
+      <div class="footer">
+        You’re receiving this email because someone invited you to join
+        AdventureLog.<br />
+        If you weren’t expecting this invitation, you can safely ignore this
+        email.<br /><br />
+        © 2023–2025 AdventureLog
+      </div>
+    </div>
+  </body>
+</html>
+
+{% endblocktrans %} {% endautoescape %}

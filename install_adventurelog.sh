@@ -3,7 +3,7 @@ set -euo pipefail
 
 # =============================================================================
 # AdventureLog Installer Script
-# (c) 2023-2025 Sean Morley <https://seanmorley.com>
+# (c) 2023-2026 Sean Morley <https://seanmorley.com>
 # https://adventurelog.app
 # License: GPL-3.0
 # =============================================================================

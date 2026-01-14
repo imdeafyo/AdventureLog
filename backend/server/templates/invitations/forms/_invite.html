@@ -1,0 +1,23 @@
+{# templates/invitations/invite.html #} {% load i18n %}
+
+<h4 class="title">{% trans "Send Invitation" %}</h4>
+
+<div class="alert alert-info">
+  {% blocktrans %}To send an invitation, please go to the Django admin and
+  create a new Invitation object.{% endblocktrans %}
+</div>
+
+<p>
+  <a
+    href="{% url 'admin:invitations_invitation_add' %}"
+    class="btn btn-primary"
+  >
+    {% trans "Go to Django Admin" %}
+  </a>
+</p>
+
+{% if request.user.is_staff %}
+<p class="text-muted small">
+  {% blocktrans %}Only staff users can send invitations.{% endblocktrans %}
+</p>
+{% endif %}

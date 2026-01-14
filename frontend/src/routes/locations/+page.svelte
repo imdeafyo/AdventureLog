@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import LocationCard from '$lib/components/LocationCard.svelte';
+	import LocationCard from '$lib/components/cards/LocationCard.svelte';
 	import CategoryFilterDropdown from '$lib/components/CategoryFilterDropdown.svelte';
 	import CategoryModal from '$lib/components/CategoryModal.svelte';
 	import type { Location } from '$lib/types';
@@ -15,7 +15,7 @@
 	import Calendar from '~icons/mdi/calendar';
 	import Tag from '~icons/mdi/tag';
 	import Compass from '~icons/mdi/compass';
-	import NewLocationModal from '$lib/components/NewLocationModal.svelte';
+	import NewLocationModal from '$lib/components/locations/LocationModal.svelte';
 
 	export let data: any;
 
@@ -58,25 +58,15 @@
 	let isLocationModalOpen: boolean = false;
 	let sidebarOpen = false;
 
-	// Reactive statements
-	$: {
-		if (typeof window !== 'undefined') {
-			let url = new URL(window.location.href);
-			if (typeString) {
-				url.searchParams.set('types', typeString);
-			} else {
-				url.searchParams.delete('types');
-			}
-			goto(url.toString(), { invalidateAll: true, replaceState: true });
-		}
-	}
-
+	// Reactive statements - Only read from URL, don't write
 	$: {
 		if (typeof window !== 'undefined') {
 			let url = new URL(window.location.href);
 			let types = url.searchParams.get('types');
 			if (types) {
 				typeString = types;
+			} else {
+				typeString = '';
 			}
 		}
 	}
@@ -500,7 +490,7 @@
 	</div>
 
 	<!-- Floating Action Button -->
-	<div class="fixed bottom-6 right-6 z-40">
+	<div class="fixed bottom-6 right-6 z-[999]">
 		<div class="dropdown dropdown-top dropdown-end">
 			<div
 				tabindex="0"

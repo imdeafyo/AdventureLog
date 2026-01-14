@@ -1,22 +1,18 @@
 <script lang="ts">
 	export let data;
-	import LocationCard from '$lib/components/LocationCard.svelte';
-	import CollectionCard from '$lib/components/CollectionCard.svelte';
+	import LocationCard from '$lib/components/cards/LocationCard.svelte';
+	import CollectionCard from '$lib/components/cards/CollectionCard.svelte';
 	import type { Location, Collection, User } from '$lib/types.js';
 	import { t } from 'svelte-i18n';
-	import { onMount } from 'svelte';
-	import { gsap } from 'gsap';
 
 	// Icons
 	import Calendar from '~icons/mdi/calendar';
-	import MapMarker from '~icons/mdi/map-marker';
 	import Airplane from '~icons/mdi/airplane';
 	import FlagCheckered from '~icons/mdi/flag-checkered-variant';
 	import CityVariant from '~icons/mdi/city-variant-outline';
 	import MapMarkerStar from '~icons/mdi/map-marker-star-outline';
 	import CollectionIcon from '~icons/mdi/folder-multiple';
 	import TrendingUp from '~icons/mdi/trending-up';
-	import Share from '~icons/mdi/share-variant';
 	import Award from '~icons/mdi/award';
 	import Run from '~icons/mdi/run';
 	import Timer from '~icons/mdi/timer-outline';

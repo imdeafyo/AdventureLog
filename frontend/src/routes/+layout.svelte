@@ -89,3 +89,11 @@
 		content="Embark, explore, remember with AdventureLog. AdventureLog is the ultimate travel companion."
 	/>
 </svelte:head>
+
+<style>
+	/* Prevent unwanted horizontal scroll caused by positioned dropdowns or transformed ancestors on small screens */
+	:global(html),
+	:global(body) {
+		overflow-x: hidden;
+	}
+</style>

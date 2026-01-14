@@ -25,6 +25,7 @@
 		"@types/node": "^22.15.2",
 		"@types/qrcode": "^1.5.5",
 		"autoprefixer": "^10.4.21",
+		"baseline-browser-mapping": "^2.9.9",
 		"daisyui": "^4.12.24",
 		"postcss": "^8.5.3",
 		"prettier": "^3.5.3",
@@ -47,6 +48,7 @@
 		"marked": "^15.0.11",
 		"psl": "^1.15.0",
 		"qrcode": "^1.5.4",
+		"svelte-dnd-action": "^0.9.68",
 		"svelte-i18n": "^4.0.1",
 		"svelte-maplibre": "^0.9.14"
 	},

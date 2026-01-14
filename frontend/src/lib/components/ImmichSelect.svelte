@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { createEventDispatcher, onMount } from 'svelte';
 	import { t } from 'svelte-i18n';
-	import ImmichLogo from '$lib/assets/immich.svg';
-	import Upload from '~icons/mdi/upload';
+	import CheckIcon from '~icons/mdi/check';
+	import CloseIcon from '~icons/mdi/close';
 	import type { ImmichAlbum } from '$lib/types';
 	import { debounce } from '$lib';
 
@@ -195,181 +195,145 @@
 	});
 </script>
 
-<div class="space-y-4">
-	<!-- Header -->
-	<div class="flex items-center gap-2 mb-4">
-		<h4 class="font-medium text-lg">
-			{$t('immich.immich')}
-		</h4>
-		<img src={ImmichLogo} alt="Immich Logo" class="h-6 w-6" />
-	</div>
+<!-- Search Category Tabs -->
+<div class="flex gap-2 mb-3">
+	<button
+		class="btn btn-sm"
+		class:btn-primary={searchCategory === 'search'}
+		class:btn-ghost={searchCategory !== 'search'}
+		on:click={() => handleSearchCategoryChange('search')}
+	>
+		{$t('navbar.search')}
+	</button>
+	<button
+		class="btn btn-sm"
+		class:btn-primary={searchCategory === 'date'}
+		class:btn-ghost={searchCategory !== 'date'}
+		on:click={() => handleSearchCategoryChange('date')}
+	>
+		{$t('immich.by_date')}
+	</button>
+	<button
+		class="btn btn-sm"
+		class:btn-primary={searchCategory === 'album'}
+		class:btn-ghost={searchCategory !== 'album'}
+		on:click={() => handleSearchCategoryChange('album')}
+	>
+		{$t('immich.by_album')}
+	</button>
+</div>
 
-	<!-- Search Category Tabs -->
-	<div class="tabs tabs-boxed w-fit">
+<!-- Search Controls -->
+{#if searchCategory === 'search'}
+	<div class="flex gap-2">
+		<input
+			type="text"
+			placeholder={$t('immich.image_search_placeholder') + '...'}
+			bind:value={immichSearchValue}
+			class="input input-bordered flex-1"
+			disabled={loading}
+		/>
 		<button
-			class="tab"
-			class:tab-active={searchCategory === 'search'}
-			on:click={() => handleSearchCategoryChange('search')}
+			type="submit"
+			class="btn btn-primary btn-sm"
+			class:loading
+			disabled={loading || !immichSearchValue.trim()}
+			on:click={searchImmich}
 		>
 			{$t('navbar.search')}
 		</button>
-		<button
-			class="tab"
-			class:tab-active={searchCategory === 'date'}
-			on:click={() => handleSearchCategoryChange('date')}
-		>
-			{$t('immich.by_date')}
-		</button>
-		<button
-			class="tab"
-			class:tab-active={searchCategory === 'album'}
-			on:click={() => handleSearchCategoryChange('album')}
-		>
-			{$t('immich.by_album')}
-		</button>
 	</div>
-
-	<!-- Search Controls -->
-	<div class="bg-base-50 p-4 rounded-lg border border-base-200">
-		{#if searchCategory === 'search'}
-			<form on:submit|preventDefault={searchImmich} class="flex gap-2">
-				<input
-					type="text"
-					placeholder={$t('immich.image_search_placeholder') + '...'}
-					bind:value={immichSearchValue}
-					class="input input-bordered flex-1"
-					disabled={loading}
-				/>
-				<button
-					type="submit"
-					class="btn btn-primary"
-					class:loading
-					disabled={loading || !immichSearchValue.trim()}
-				>
-					{$t('navbar.search')}
-				</button>
-			</form>
-		{:else if searchCategory === 'date'}
-			<div class="flex items-center gap-2">
-				<label class="label" for="date-picker">
-					<span class="label-text">{$t('immich.select_date')}</span>
-				</label>
-				<input
-					id="date-picker"
-					type="date"
-					bind:value={selectedDate}
-					class="input input-bordered w-full max-w-xs"
-					disabled={loading}
-				/>
-			</div>
-		{:else if searchCategory === 'album'}
-			<div class="flex items-center gap-2">
-				<label class="label" for="album-select">
-					<span class="label-text">{$t('immich.select_album')}</span>
-				</label>
-				<select
-					id="album-select"
-					class="select select-bordered w-full max-w-xs"
-					bind:value={currentAlbum}
-					disabled={loading}
-				>
-					<option value="" disabled>
-						{albums.length > 0 ? $t('immich.select_album') : $t('immich.loading_albums')}
-					</option>
-					{#each albums as album (album.id)}
-						<option value={album.id}>{album.albumName}</option>
-					{/each}
-				</select>
-			</div>
-		{/if}
+{:else if searchCategory === 'date'}
+	<div class="flex gap-2 items-center">
+		<input
+			id="date-picker"
+			type="date"
+			bind:value={selectedDate}
+			class="input input-bordered flex-1"
+			disabled={loading}
+		/>
 	</div>
+{:else if searchCategory === 'album'}
+	<select
+		id="album-select"
+		class="select select-bordered w-full"
+		bind:value={currentAlbum}
+		disabled={loading}
+	>
+		<option value="" disabled>
+			{albums.length > 0 ? $t('immich.select_album') : $t('immich.loading_albums')}
+		</option>
+		{#each albums as album (album.id)}
+			<option value={album.id}>{album.albumName}</option>
+		{/each}
+	</select>
+{/if}
 
-	<!-- Error Message -->
-	{#if immichError}
-		<div class="alert alert-error py-2">
-			<svg
-				xmlns="http://www.w3.org/2000/svg"
-				class="stroke-current shrink-0 h-5 w-5"
-				fill="none"
-				viewBox="0 0 24 24"
-				aria-hidden="true"
+<!-- Error Message -->
+{#if immichError}
+	<div class="alert alert-error mt-2 py-2">
+		<span class="text-sm">{immichError}</span>
+	</div>
+{/if}
+
+<!-- Images Results (Inline) -->
+{#if immichImages.length > 0}
+	<div class="mt-4">
+		<div class="flex items-center justify-between mb-3">
+			<span class="text-sm text-base-content/70">
+				{immichImages.length}
+				{immichImages.length === 1 ? 'image' : 'images'} found
+			</span>
+			<button
+				class="btn btn-ghost btn-xs"
+				on:click={() => {
+					immichImages = [];
+					immichSearchValue = '';
+					immichNextURL = '';
+				}}
 			>
-				<path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					stroke-width="2"
-					d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"
-				/>
-			</svg>
-			<span class="text-sm">{immichError}</span>
+				<CloseIcon class="h-4 w-4" />
+			</button>
 		</div>
-	{/if}
-
-	<!-- Images Grid -->
-	<div class="relative">
-		<!-- Loading Overlay -->
-		{#if loading}
-			<div
-				class="absolute inset-0 bg-base-200/50 backdrop-blur-sm z-10 flex items-center justify-center rounded-lg"
-			>
-				<div class="flex flex-col items-center gap-2">
-					<span class="loading loading-spinner loading-lg"></span>
-					<span class="text-sm text-base-content/70">{$t('immich.loading')}</span>
-				</div>
-			</div>
-		{/if}
-
-		<!-- Images Grid -->
-		{#if immichImages.length > 0}
-			<div
-				class="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4"
-				class:opacity-50={loading}
-			>
-				{#each immichImages as image (image.id)}
+		<div class="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-96 overflow-y-auto">
+			{#each immichImages as image (image.id)}
+				<button
+					type="button"
+					class="card bg-base-100 border border-base-300 hover:border-primary hover:shadow-lg transition-all duration-200 cursor-pointer group relative"
+					on:click={() => handleImageSelect(image)}
+					disabled={loading}
+				>
+					<figure class="aspect-square bg-base-200 overflow-hidden">
+						<img
+							src={image.image_url}
+							alt="Immich"
+							class="w-full h-full object-cover transition-transform group-hover:scale-105"
+							loading="lazy"
+						/>
+					</figure>
 					<div
-						class="card bg-base-100 shadow-sm hover:shadow-md transition-all duration-200 border border-base-200"
+						class="absolute inset-0 bg-primary/10 opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center rounded-2xl"
 					>
-						<figure class="aspect-square overflow-hidden">
-							<img
-								src={image.image_url}
-								alt="Image from Immich"
-								class="w-full h-full object-cover hover:scale-105 transition-transform duration-200"
-								loading="lazy"
-							/>
-						</figure>
-						<div class="card-body p-3">
-							<button
-								type="button"
-								class="btn btn-primary btn-sm w-full gap-2"
-								disabled={loading}
-								on:click={() => handleImageSelect(image)}
-							>
-								<Upload class="w-4 h-4" />
-							</button>
+						<div class="btn btn-primary btn-sm gap-2">
+							<CheckIcon class="h-4 w-4" />
+							{$t('adventures.select')}
 						</div>
 					</div>
-				{/each}
-			</div>
-		{:else if !loading && searchCategory !== 'search'}
-			<div class="bg-base-200/50 rounded-lg p-8 text-center">
-				<div class="text-base-content/60 mb-2">{$t('immich.no_images')}</div>
-				<div class="text-sm text-base-content/40">
-					{#if searchCategory === 'date'}
-						{$t('immich.try_different_date')}
-					{:else if searchCategory === 'album'}
-						{$t('immich.select_album_first')}
-					{/if}
-				</div>
-			</div>
-		{/if}
+				</button>
+			{/each}
+		</div>
 
 		<!-- Load More Button -->
-		{#if immichNextURL && !loading}
-			<div class="flex justify-center mt-6">
-				<button class="btn btn-outline btn-wide" on:click={loadMoreImmich} disabled={loading}>
-					{$t('immich.load_more')}
+		{#if immichNextURL}
+			<div class="flex justify-center mt-3">
+				<button
+					class="btn btn-outline btn-sm btn-wide"
+					on:click={loadMoreImmich}
+					disabled={loading}
+				>
+					{loading ? $t('immich.loading') : $t('immich.load_more')}
 				</button>
 			</div>
 		{/if}
 	</div>
-</div>
+{/if}
