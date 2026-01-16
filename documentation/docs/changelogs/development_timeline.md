@@ -166,11 +166,16 @@ Now the project focuses on _polish, robustness, and expanding the core platform_
   - Trails: link trail data either via a URL or by integrating with self-hosted platforms (like Wanderer). This enriches the outdoor-adventure use case.
 - **File attachments & broader media options:** allow PDFs and other travel documents to be attached to locations/visits.
 - **Server configurability & geocoding:** more options for self-hosted operators, plus an optional Google Maps integration for geocoding.
+- **New Itineraries**: a reimagined trip planning experience that focuses on day-by-day plans rather than just collections of locations. Uses a drag-and-drop interface for easy itinerary building.
 
 ### Ongoing priorities
 
 - Performance tuning and bug fixes continue to be the top priority — the fewer regressions, the more people trust the app.
 - Accessibility improvements, better testing, and expanding integrations in a way that doesn’t bloat the core experience.
+
+### Major community milestones
+
+- Docker image downloads crossed **1 Million** — a huge milestone that reflects sustained interest and usage.
 
 ### Takeaway
 
