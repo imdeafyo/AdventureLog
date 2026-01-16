@@ -1,7 +1,7 @@
 name: build-images
 on:
   push:
-    branches: [ lang-fix, main ]
+    branches: [ main ]
     tags: [ 'v*' ]   # optional: build on version tags too
 
 jobs:
